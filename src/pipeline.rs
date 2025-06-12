@@ -8,7 +8,6 @@ use z3::{Config, Context, Solver};
 use crate::pipeline::normal::Z3Env;
 use crate::pipeline::shared::{Ctx, Eval, Schema};
 use crate::pipeline::unify::{Unify, UnifyEnv};
-use crate::pipeline::constraint;
 
 pub mod normal;
 mod null;
@@ -25,11 +24,6 @@ pub mod unify;
 pub struct Input {
 	schemas: Vec<Schema>,
 	pub queries: (relation::Relation, relation::Relation),
-
-	// Add Constraints
-	// #[serde(default)]
-	// pub constraints: Vec<constraint::Constraint>,
-
 	#[serde(default)]
 	help: (String, String),
 }
