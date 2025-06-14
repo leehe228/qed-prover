@@ -458,35 +458,35 @@ impl<'c> Z3Env<'c> {
     }
 
 	pub fn equal_expr(&self, e1: &rel::Expr, e2: &rel::Expr) -> Bool<'c> {
-		use rel::Expr::*;
+        use rel::Expr::*;
 
-		if let (
+        if let (
             Op { op: op1, args: cols1, ty: _, rel: None },
             Op { op: op2, args: cols2, ty: _, rel: None },
         ) = (e1, e2)
             && op1.eq_ignore_ascii_case("ROW")
             && op2.eq_ignore_ascii_case("ROW")
-            && cols1.len() == cols2.len()
         {
-            let col_eqs: Vec<Dynamic<'c>> = cols1
-                .iter()
-                .zip(cols2)
-                .map(|(c1, c2)| {
-                    // 각 칼럼은 개별 타입을 가질 수 있다.
-                    assert_eq!(c1.ty(), c2.ty(), "ROW-equality: column type mismatch");
-                    self.equal(c1.ty(), &self.eval(c1), &self.eval(c2))
-                })
-                .collect();
+            if cols1.is_empty() && cols2.is_empty() {
+                return Bool::from_bool(self.ctx.z3_ctx(), true);
+            }
 
-            // AND 후 NULL-able Bool → concrete Bool 변환
-            let all = self.ctx.bool_and_v(&col_eqs.iter().collect::<Vec<_>>());
-            return self.ctx.bool_is_true(&all);
+            if cols1.len() == cols2.len() {
+                let col_eqs: Vec<Dynamic<'c>> = cols1
+                    .iter()
+                    .zip(cols2)
+                    .map(|(c1, c2)| {
+                        assert_eq!(c1.ty(), c2.ty(), "ROW-equality: column type mismatch");
+                        self.equal(c1.ty(), &self.eval(c1), &self.eval(c2))
+                    })
+                    .collect();
+
+                let all = self.ctx.bool_and_v(&col_eqs.iter().collect::<Vec<_>>());
+                return self.ctx.bool_is_true(&all);
+            }
         }
-
-        // 기본 : 단일 칼럼 비교
         let d1 = self.eval(e1);
         let d2 = self.eval(e2);
-
         assert_eq!(
             d1.get_sort(),
             d2.get_sort(),
@@ -497,7 +497,7 @@ impl<'c> Z3Env<'c> {
 
         let nullable_eq = self.equal(e1.ty(), &d1, &d2);
         self.ctx.bool_is_true(&nullable_eq)
-   }
+    }
 
 	pub fn encode_subset(&self, t1: &TupCtx<'c>, _r1: &rel::Relation, t2: &TupCtx<'c>, _r2: &rel::Relation) -> Bool<'c> {
 		let z3_ctx = self.ctx.z3_ctx();
