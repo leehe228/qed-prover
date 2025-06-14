@@ -535,7 +535,7 @@ pub enum Expr {
 }
 
 impl Expr {
-	fn ty(&self) -> DataType {
+	pub fn ty(&self) -> DataType {
 		match self {
 			Expr::Col { ty, .. } => ty,
 			Expr::Op { ty, .. } => ty,

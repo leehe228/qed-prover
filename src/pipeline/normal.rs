@@ -455,16 +455,86 @@ impl<'c> Z3Env<'c> {
         self.ctx.app(name, &arg_refs, result_ty, nullable)
     }
 
-	pub fn equal_expr(&self, _e1: &rel::Expr, _e2: &rel::Expr) -> Bool<'c> {
-		self.bool_true()
-	}
+	pub fn equal_expr(&self, e1: &rel::Expr, e2: &rel::Expr) -> Bool<'c> {
+		let d1 = self.eval(e1);
+        let d2 = self.eval(e2);
 
-	pub fn encode_subset(&self, _r1: &rel::Relation, _r2: &rel::Relation) -> Bool<'c> {
-		self.bool_true()
+		// Sanity‑check: the two terms must have the same Z3 sort
+        assert_eq!(
+            d1.get_sort(),
+            d2.get_sort(),
+            "Mismatching sorts: {:?} vs {:?}",
+            e1,
+            e2
+        );
+
+		// Use NULL‑aware equality so that SQL three‑valued logic semantics are preserved.
+        // `self.equal` returns a nullable Boolean encoded as `Dynamic`; convert it back
+        // to a concrete Bool by testing whether the resulting option is TRUE.
+        let nullable_eq = self.equal(e1.ty(), &d1, &d2);
+
+		// `bool_is_true` extracts the concrete `Bool<'c>` that is TRUE exactly when
+        // the nullable equality is TRUE (and FALSE otherwise, including NULL).
+        self.ctx.bool_is_true(&nullable_eq)
+    }
+
+	pub fn encode_subset(&self, t1: &TupCtx<'c>, r1: &rel::Relation, t2: &TupCtx<'c>, r2: &rel::Relation) -> Bool<'c> {
+		let z3_ctx = self.ctx.z3_ctx();
+
+		// Build one opaque “tuple” object that will stand for a row of either relation.
+		// We model membership of a tuple in a relation via the unary predicate
+		//   rel!<name>p(tuple) : Bool
+		// and then assert    rel₁(t) ⇒ rel₂(t)   for all tuples t.
+		//
+		// A single uninterpreted sort is sufficient, because attributes are accessed
+		// through separate uninterpreted functions that take the same tuple as their
+		// first (and only) argument.
+		let tuple_sort = z3::Sort::uninterpreted(
+			z3_ctx,
+			z3::Symbol::String("Tuple".to_string())
+		);
+		let t = z3::ast::Dynamic::fresh_const(z3_ctx, "t", &tuple_sort);
+
+		// Helper that builds the unary membership predicate symbol “rel!<name>p”.
+		let pred = |name: &str| {
+			let f = z3::FuncDecl::new(
+				z3_ctx,
+				format!("{}p", Self::u_name_of_relation(name)),
+				&[&tuple_sort],
+				&z3::Sort::bool(z3_ctx),
+			);
+			f.apply(&[&t]).as_bool().unwrap()
+		};
+
+		let in_r1 = pred(&t1.rel_name);
+		let in_r2 = pred(&t2.rel_name);
+
+		// ∀t.  in_r1(t)  ⇒  in_r2(t)
+		let forall = {
+			let bound : [&dyn z3::ast::Ast; 1] = [&t];
+			z3::ast::forall_const(z3_ctx, &bound, &[], &in_r1.implies(&in_r2))
+		};
+
+		forall
 	}
 
 	pub fn encode_subattr(&self, _a1: &rel::Expr, _a2: &rel::Expr) -> Bool<'c> {
 		self.bool_true()
+	}
+
+	pub fn eval_attr(&self, tup: &TupCtx<'c>, e: &rel::Expr) -> Dynamic<'c> {
+		use rel::Expr::*;
+		match e {
+			Col { column: VL(i), ty } => tup.attr(self, *i, ty),
+			Op { op, args, ty, rel: None } => {
+                let dargs: Vec<_> = args.iter().map(|a| self.eval_attr(tup, a)).collect();
+                self.ctx.app(&Self::uf_name_of_expr(op), &dargs.iter().collect::<Vec<_>>(), ty, true)
+            }
+            Op { op, args, ty, rel: Some(q) } => {
+                let dargs: Vec<_> = args.iter().map(|a| self.eval(a)).collect();
+                self.ctx.app(&Self::uf_name_of_expr(op), &dargs.iter().collect::<Vec<_>>(), ty, true)
+            }
+		}
 	}
 
 	pub fn encode_refattr(
@@ -569,6 +639,27 @@ impl<'c> Z3Env<'c> {
 			_ => unreachable!(),
 		}
 	}
+
+	#[inline]
+	fn u_name_of_relation(relation: &str) -> String {
+		format!("rel!{}", relation)
+	}
+
+	#[inline]
+    fn uf_name_of_expr(op: &str) -> String {
+        format!("f!{}", op.replace('\'', "\""))
+    }
+
+	fn attr_app(
+        &self,
+        rel_name: &str,
+        attr_idx: usize,
+        tuple: &[&Dynamic<'c>],
+        ty: &DataType,
+    ) -> Dynamic<'c> {
+        let uf = format!("{}!c{}", Self::u_name_of_relation(rel_name), attr_idx);
+        self.ctx.app(&uf, tuple, ty, true)
+    }
 
 	// Some x.P
 	// exists x. (P[x] == true) => true
@@ -681,6 +772,29 @@ impl<'c> Eval<&Vector<Neutral>, Int<'c>> for &Z3Env<'c> {
 			Int::from_i64(z3_ctx, 1)
 		} else {
 			Int::mul(z3_ctx, &apps.iter().collect_vec())
+		}
+	}
+}
+
+impl<'c> shared::Eval<&rel::Expr, Dynamic<'c>> for &Z3Env<'c> {
+	fn eval(self, source: &rel::Expr) -> Dynamic<'c> {
+		use rel::Expr::*;
+		match source {
+			Op { op, args, ty, rel: None } => {
+                let dargs: Vec<Dynamic<'c>> =
+                    args.iter().map(|a| self.eval(a)).collect();
+                let arefs: Vec<&Dynamic<'c>> = dargs.iter().collect();
+                self.ctx.app(&Z3Env::uf_name_of_expr(op), &arefs, ty, true)
+            }
+
+            Op { op, args, ty, rel: Some(_q) } => {
+                let dargs: Vec<Dynamic<'c>> =
+                    args.iter().map(|a| self.eval(a)).collect();
+                let arefs: Vec<&Dynamic<'c>> = dargs.iter().collect();
+                self.ctx.app(&Z3Env::uf_name_of_expr(op), &arefs, ty, true)
+            }
+
+			Col { .. } => unreachable!("Col should be lowered via eval_attr()")
 		}
 	}
 }
@@ -893,10 +1007,13 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 			.iter()
 			.map(|c| match c {
 				RelEq { r1, r2 } => {
-					let l2r = self.encode_subset(r1, r2);
-					let r2l = self.encode_subset(r2, r1);
-					Bool::and(z3_ctx, &[&l2r, &r2l])
-				}
+                    let t1 = TupCtx { rel_name: "r1".to_string(), cols: vector![] };
+                    let t2 = TupCtx { rel_name: "r2".to_string(), cols: vector![] };
+
+                    let l2r = self.encode_subset(&t1, r1, &t2, r2);
+                    let r2l = self.encode_subset(&t2, r2, &t1, r1);
+                    Bool::and(z3_ctx, &[&l2r, &r2l])
+                }
 				AttrsEq { a1, a2 } => {
 					self.equal_expr(a1, a2)
 				},
@@ -922,8 +1039,10 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 					self.equal_expr(a, c)
 				},
 				Subset { r1, r2 } => {
-					self.encode_subset(r1, r2)
-				},
+                    let t1 = TupCtx { rel_name: "r1".to_string(), cols: vector![] };
+                    let t2 = TupCtx { rel_name: "r2".to_string(), cols: vector![] };
+                    self.encode_subset(&t1, r1, &t2, r2)
+                }
 			})
 			.collect();
 
@@ -932,5 +1051,18 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 		} else {
 			Bool::and(z3_ctx, &encoded.iter().collect::<Vec<_>>())
 		}
+	}
+}
+
+#[derive(Clone)]
+pub struct TupCtx<'c> {
+	pub rel_name: String,
+	pub cols: Vector<Dynamic<'c>>,
+}
+
+impl<'c> TupCtx<'c> {
+	#[inline]
+	pub fn attr(&self, z3: &Z3Env<'c>, idx: usize, ty: &DataType) -> Dynamic<'c> {
+		z3.attr_app(&self.rel_name, idx, &self.cols.iter().collect::<Vec<_>>(), ty)
 	}
 }
