@@ -497,7 +497,7 @@ impl<'c> Z3Env<'c> {
         self.ctx.bool_is_true(&nullable_eq)
    }
 
-	pub fn encode_subset(&self, t1: &TupCtx<'c>, r1: &rel::Relation, t2: &TupCtx<'c>, r2: &rel::Relation) -> Bool<'c> {
+	pub fn encode_subset(&self, t1: &TupCtx<'c>, _r1: &rel::Relation, t2: &TupCtx<'c>, _r2: &rel::Relation) -> Bool<'c> {
 		let z3_ctx = self.ctx.z3_ctx();
 
 		// Build one opaque “tuple” object that will stand for a row of either relation.
@@ -510,7 +510,7 @@ impl<'c> Z3Env<'c> {
 		// first (and only) argument.
 		let tuple_sort = z3::Sort::uninterpreted(
 			z3_ctx,
-			z3::Symbol::String("Tuple".to_string())
+			z3::Symbol::String("Tuple".into())
 		);
 		let t = z3::ast::Dynamic::fresh_const(z3_ctx, "t", &tuple_sort);
 
@@ -537,8 +537,61 @@ impl<'c> Z3Env<'c> {
 		forall
 	}
 
-	pub fn encode_subattr(&self, _a1: &rel::Expr, _a2: &rel::Expr) -> Bool<'c> {
-		self.bool_true()
+	pub fn encode_subattr(&self, a1: &rel::Expr, a2: &rel::Expr) -> Bool<'c> {
+		use z3::ast::{forall_const, exists_const};
+
+        let z3_ctx  = self.ctx.z3_ctx();
+        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
+                                              z3::Symbol::String("Tuple".into()));
+
+        // bound variables
+        let t  = Dynamic::fresh_const(z3_ctx, "t",  &tuple_s);
+        let tp = Dynamic::fresh_const(z3_ctx, "t'", &tuple_s);
+
+        // unary “membership” predicates
+        let mem  = |name: &str, tup: &Dynamic<'c>| {
+            let f = z3::FuncDecl::new(
+                z3_ctx,
+                format!("{}p", Self::u_name_of_relation(name)),
+                &[&tuple_s],
+                &z3::Sort::bool(z3_ctx),
+            );
+            f.apply(&[tup]).as_bool().unwrap()
+        };
+
+        // tuple contexts for attribute evaluation
+        let tup1 = TupCtx { rel_name: "r1".into(), cols: vector![t.clone()] };
+        let tup2 = TupCtx { rel_name: "r2".into(), cols: vector![tp.clone()] };
+
+        let ty   = a1.ty();                       // 공통 타입
+        let v1   = self.eval_attr(&tup1, a1);
+        let v2   = self.eval_attr(&tup2, a2);
+
+        // ¬null(v1)
+        let not_null = {
+            let null = self.ctx.none(&ty).unwrap();
+            null._eq(&v1).not()
+        };
+
+        // a₂(t') = a₁(t)   (Null-세이프 동등 / strict Bool)
+        let eq_val  = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
+
+        // 본문 : R₂(t') ∧ a₂(t') = a₁(t)
+        let body = Bool::and(z3_ctx, &[&mem("r2", &tp), &eq_val]);
+
+        // ∃ t'. body
+        let exists  = {
+            let bnds : [&dyn Ast; 1] = [&tp];
+            exists_const(z3_ctx, &bnds, &[], &body)
+        };
+
+        // ∀ t.    ¬null(a₁(t))  ⇒  ∃ …
+        let antecedent = not_null;
+        let conseq     = exists;
+        let implication = antecedent.implies(&conseq);
+
+        let bnds : [&dyn Ast; 1] = [&t];
+        forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
 	pub fn eval_attr(&self, tup: &TupCtx<'c>, e: &rel::Expr) -> Dynamic<'c> {
@@ -559,28 +612,213 @@ impl<'c> Z3Env<'c> {
 	pub fn encode_refattr(
 		&self,
 		_r1: &rel::Relation,
-		_a1: &rel::Expr,
+		a1: &rel::Expr,
 		_r2: &rel::Relation,
-		_a2: &rel::Expr,
+		a2: &rel::Expr,
 	) -> Bool<'c> {
-		self.bool_true()
+		use z3::ast::{forall_const, exists_const};
+
+        let z3_ctx  = self.ctx.z3_ctx();
+        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
+                                              z3::Symbol::String("Tuple".into()));
+
+        let t  = Dynamic::fresh_const(z3_ctx, "t",  &tuple_s);
+        let tp = Dynamic::fresh_const(z3_ctx, "t'", &tuple_s);
+
+        let mem = |name: &str, tup: &Dynamic<'c>| {
+            let f = z3::FuncDecl::new(
+                z3_ctx,
+                format!("{}p", Self::u_name_of_relation(name)),
+                &[&tuple_s],
+                &z3::Sort::bool(z3_ctx),
+            );
+            f.apply(&[tup]).as_bool().unwrap()
+        };
+
+        let tup1 = TupCtx { rel_name: "r1".into(), cols: vector![t.clone()] };
+        let tup2 = TupCtx { rel_name: "r2".into(), cols: vector![tp.clone()] };
+
+        let ty   = a1.ty();
+        let v1   = self.eval_attr(&tup1, a1);
+        let v2   = self.eval_attr(&tup2, a2);
+
+        let not_null = {
+            let null = self.ctx.none(&ty).unwrap();
+            null._eq(&v1).not()
+        };
+
+        let eq_val = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
+
+        let body   = Bool::and(z3_ctx, &[&mem("r2", &tp), &eq_val]);
+
+        let exists = {
+            let bnds : [&dyn Ast; 1] = [&tp];
+            exists_const(z3_ctx, &bnds, &[], &body)
+        };
+
+        let antecedent = Bool::and(z3_ctx, &[&mem("r1", &t), &not_null]);
+        let implication = antecedent.implies(&exists);
+
+        let bnds : [&dyn Ast; 1] = [&t];
+        forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
-	pub fn encode_unique(&self, _r: &rel::Relation, _a: &rel::Expr) -> Bool<'c> {
-		self.bool_true()
+	pub fn encode_unique(&self, _r: &rel::Relation, a: &rel::Expr) -> Bool<'c> {
+		use z3::ast::forall_const;
+
+        let z3_ctx  = self.ctx.z3_ctx();
+        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
+                                              z3::Symbol::String("Tuple".into()));
+
+        let t  = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
+        let u  = Dynamic::fresh_const(z3_ctx, "u", &tuple_s);
+
+        let mem = |tup: &Dynamic<'c>| {
+            let f = z3::FuncDecl::new(
+                z3_ctx,
+                z3::Symbol::String("r!p".to_string()),
+                &[&tuple_s],
+                &z3::Sort::bool(z3_ctx),
+            );
+            f.apply(&[tup]).as_bool().unwrap()
+        };
+
+        let tup_t = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
+        let tup_u = TupCtx { rel_name: "r".into(), cols: vector![u.clone()] };
+
+        let ty    = a.ty();
+        let vt    = self.eval_attr(&tup_t, a);
+        let vu    = self.eval_attr(&tup_u, a);
+        let eq_a  = self.ctx.bool_is_true(&self.equal(ty, &vt, &vu));
+
+        let antecedent = Bool::and(z3_ctx, &[&mem(&t), &mem(&u), &eq_a]);
+        let implication = antecedent.implies(&t._eq(&u));
+
+        let bnds : [&dyn Ast; 2] = [&t, &u];
+        forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
-	pub fn encode_notnull(&self, _r: &rel::Relation, _a: &rel::Expr) -> Bool<'c> {
-		self.bool_true()
+	pub fn encode_notnull(&self, _r: &rel::Relation, a: &rel::Expr) -> Bool<'c> {
+		use z3::ast::forall_const;
+
+        let z3_ctx  = self.ctx.z3_ctx();
+        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
+                                              z3::Symbol::String("Tuple".into()));
+
+        let t = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
+
+        let mem = |tup: &Dynamic<'c>| {
+            let f = z3::FuncDecl::new(
+                z3_ctx,
+                z3::Symbol::String("r!p".to_string()),
+                &[&tuple_s],
+                &z3::Sort::bool(z3_ctx),
+            );
+            f.apply(&[tup]).as_bool().unwrap()
+        };
+
+        let tup = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
+
+        let ty   = a.ty();
+        let val  = self.eval_attr(&tup, a);
+        let not_null = {
+            let null = self.ctx.none(&ty).unwrap();
+            null._eq(&val).not()
+        };
+
+        let implication = mem(&t).implies(&not_null);
+        let bnds : [&dyn Ast; 1] = [&t];
+        forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
 	pub fn encode_fd(
 		&self,
 		_r: &rel::Relation,
-		_x: &Vec<rel::Expr>,
-		_y: &Vec<rel::Expr>,
+		x: &Vec<rel::Expr>,
+		y: &Vec<rel::Expr>,
 	) -> Bool<'c> {
-		self.bool_true()
+		use z3::ast::forall_const;
+
+        assert!(!x.is_empty() && !y.is_empty(),
+                "FD must have non-empty X and Y");
+
+        let z3_ctx  = self.ctx.z3_ctx();
+        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
+                                              z3::Symbol::String("Tuple".into()));
+
+        let t  = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
+        let u  = Dynamic::fresh_const(z3_ctx, "u", &tuple_s);
+
+        let mem = |tup: &Dynamic<'c>| {
+            let f = z3::FuncDecl::new(
+                z3_ctx,
+                z3::Symbol::String("r!p".to_string()),
+                &[&tuple_s],
+                &z3::Sort::bool(z3_ctx),
+            );
+            f.apply(&[tup]).as_bool().unwrap()
+        };
+
+        let tup_t = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
+        let tup_u = TupCtx { rel_name: "r".into(), cols: vector![u.clone()] };
+
+        let eq_xs : Vec<Bool<'c>> = x.iter().map(|e| {
+            let ty  = e.ty();
+            let vt  = self.eval_attr(&tup_t, e);
+            let vu  = self.eval_attr(&tup_u, e);
+            self.ctx.bool_is_true(&self.equal(ty, &vt, &vu))
+        }).collect();
+
+        let eq_ys : Vec<Bool<'c>> = y.iter().map(|e| {
+            let ty  = e.ty();
+            let vt  = self.eval_attr(&tup_t, e);
+            let vu  = self.eval_attr(&tup_u, e);
+            self.ctx.bool_is_true(&self.equal(ty, &vt, &vu))
+        }).collect();
+
+        let antecedent = Bool::and(
+			z3_ctx,
+			&[&mem(&t), &mem(&u),
+			&Bool::and(z3_ctx, &eq_xs.iter().collect::<Vec<_>>())],
+		);
+
+        let conseq      = Bool::and(z3_ctx, &eq_ys.iter().collect::<Vec<_>>());
+        let implication = antecedent.implies(&conseq);
+
+        let bnds : [&dyn Ast; 2] = [&t, &u];
+        forall_const(z3_ctx, &bnds, &[], &implication)
+	}
+
+	pub fn encode_const(&self, _r: &rel::Relation, a: &rel::Expr, c: &rel::Expr) -> Bool<'c> {
+		use z3::ast::forall_const;
+
+        let z3_ctx  = self.ctx.z3_ctx();
+        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
+                                              z3::Symbol::String("Tuple".into()));
+
+        let t = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
+
+        let mem = |tup: &Dynamic<'c>| {
+            let f = z3::FuncDecl::new(
+                z3_ctx,
+                z3::Symbol::String("r!p".to_string()),
+                &[&tuple_s],
+                &z3::Sort::bool(z3_ctx),
+            );
+            f.apply(&[tup]).as_bool().unwrap()
+        };
+
+        let tup = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
+
+        let ty      = a.ty();
+        let val_t   = self.eval_attr(&tup, a);
+        let val_c   = self.eval(c);
+        let eq_val  = self.ctx.bool_is_true(&self.equal(ty, &val_t, &val_c));
+
+        let implication = mem(&t).implies(&eq_val);
+
+        let bnds : [&dyn Ast; 1] = [&t];
+        forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
 	pub fn empty(ctx: Rc<Ctx<'c>>) -> Self {
@@ -620,13 +858,46 @@ impl<'c> Z3Env<'c> {
 	fn equal(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>) -> Dynamic<'c> {
 		use shared::DataType::*;
 		let ctx = &self.ctx;
-		assert_eq!(a1.get_sort(), a2.get_sort(), "{} and {} have different types.", a1, a2);
+
+		// Helper: lift a strict value into an `Option<…>::Some(_)`
+		// so that both operands share the *nullable* sort.
+		let strict_sort = ctx.strict_sort(&ty);
+		let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
+			if v.get_sort() == strict_sort {
+				match ty {
+					Integer => {
+						// `as_int()` gives the underlying `z3::ast::Int`
+						ctx.int_some(v.as_int().expect("Expected Int"))
+					}
+					Real => ctx.real_some(v.as_real().expect("Expected Real")),
+					Boolean => ctx.bool_some(v.as_bool().expect("Expected Bool")),
+					String => ctx.string_some(v.as_string().expect("Expected String")),
+					// For custom / uninterpreted sorts we keep the value as‑is;
+					// equality will fall back to `generic_eq`.
+					Custom(_) => v.clone(),
+				}
+			} else {
+				v.clone()
+			}
+		};
+
+		let v1 = lift(a1);
+		let v2 = lift(a2);
+
+		// At this point both operands must have the same (nullable) sort.
+		debug_assert!(
+			v1.get_sort() == v2.get_sort(),
+			"equal(): sort mismatch after lifting: {:?} vs {:?}",
+			v1.get_sort(),
+			v2.get_sort()
+		);
+
 		match ty {
-			Integer => ctx.int__eq(a1, a2),
-			Real => ctx.real__eq(a1, a2),
-			Boolean => ctx.bool__eq(a1, a2),
-			String => ctx.string__eq(a1, a2),
-			Custom(ty) => ctx.generic_eq(ty, a1, a2),
+			Integer => ctx.int__eq(&v1, &v2),
+			Real => ctx.real__eq(&v1, &v2),
+			Boolean => ctx.bool__eq(&v1, &v2),
+			String => ctx.string__eq(&v1, &v2),
+			Custom(name) => ctx.generic_eq(name, &v1, &v2),
 		}
 	}
 
@@ -675,9 +946,10 @@ impl<'c> Z3Env<'c> {
         attr_idx: usize,
         tuple: &[&Dynamic<'c>],
         ty: &DataType,
+		nullable: bool,
     ) -> Dynamic<'c> {
         let uf = format!("{}!c{}", Self::u_name_of_relation(rel_name), attr_idx);
-        self.ctx.app(&uf, tuple, ty, true)
+        self.ctx.app(&uf, tuple, ty, nullable)
     }
 
 	// Some x.P
@@ -1082,6 +1354,13 @@ pub struct TupCtx<'c> {
 impl<'c> TupCtx<'c> {
 	#[inline]
 	pub fn attr(&self, z3: &Z3Env<'c>, idx: usize, ty: &DataType) -> Dynamic<'c> {
-		z3.attr_app(&self.rel_name, idx, &self.cols.iter().collect::<Vec<_>>(), ty)
+		let nullable = true; // TODO: look up real nullablity from catalog
+		z3.attr_app(
+			&self.rel_name,
+			idx,
+			&self.cols.iter().collect::<Vec<_>>(),
+			ty,
+			nullable,
+		)
 	}
 }
