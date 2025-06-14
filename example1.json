@@ -1,0 +1,46 @@
+{
+  "help": [
+    "Project deptno",
+    "Project deptno with filter NOT NULL"
+  ],
+  "schemas": [
+    {
+      "types": ["INTEGER"],
+      "nullable": [true],
+      "name": "dept",
+      "fields": ["deptno"],
+      "guaranteed": [],
+      "key": [[0]]
+    }
+  ],
+  "queries": [
+    {
+      "project": {
+        "source": { "scan": 0 },
+        "target": [
+          { "column": 0, "type": "INTEGER" }
+        ]
+      }
+    },
+    {
+      "project": {
+        "source": {
+          "filter": {
+            "condition": {
+              "type": "BOOLEAN",
+              "operand": [
+                { "column": 0, "type": "INTEGER" }
+              ],
+              "operator": "IS NOT NULL"
+            },
+            "source": { "scan": 0 }
+          }
+        },
+        "target": [
+          { "column": 0, "type": "INTEGER" }
+        ]
+      }
+    }
+  ],
+  "constraints": []
+}
