@@ -16,8 +16,10 @@ use super::shared::{Ctx, Lambda, Sigma, Typed};
 use super::stable::{self, stablize};
 use super::unify::{Unify, UnifyEnv};
 use crate::pipeline::relation::{num_cmp, num_op};
+use crate::pipeline::relation as rel;
 use crate::pipeline::shared::{DataType, Eval, Neutral as Neut, Terms, VL};
 use crate::pipeline::{partial, shared};
+use crate::pipeline::constraint;
 
 pub type Relation = Lambda<UExpr>;
 
@@ -377,7 +379,8 @@ impl Unify<partial::UExpr> for Env {
 		let t2 = env.eval(t2);
 		let t1: UExpr = self.eval(t1);
 		let t2: UExpr = self.eval(t2);
-		let uni_env = UnifyEnv(ctx, z3_subst.clone(), z3_subst);
+		let top = Bool::from_bool(ctx.z3_ctx(), true);
+		let uni_env = UnifyEnv(ctx, z3_subst.clone(), z3_subst, top);
 		uni_env.unify(&t1, &t2)
 	}
 }
@@ -400,6 +403,50 @@ pub struct Z3Env<'c> {
 }
 
 impl<'c> Z3Env<'c> {
+	#[inline]
+	fn bool_true(&self) -> Bool<'c> {
+		Bool::from_bool(self.ctx.z3_ctx(), true)
+	}
+
+	pub fn equal_expr(&self, _e1: &rel::Expr, _e2: &rel::Expr) -> Bool<'c> {
+		self.bool_true()
+	}
+
+	pub fn encode_subset(&self, _r1: &rel::Relation, _r2: &rel::Relation) -> Bool<'c> {
+		self.bool_true()
+	}
+
+	pub fn encode_subattr(&self, _a1: &rel::Expr, _a2: &rel::Expr) -> Bool<'c> {
+		self.bool_true()
+	}
+
+	pub fn encode_refattr(
+		&self,
+		_r1: &rel::Relation,
+		_a1: &rel::Expr,
+		_r2: &rel::Relation,
+		_a2: &rel::Expr,
+	) -> Bool<'c> {
+		self.bool_true()
+	}
+
+	pub fn encode_unique(&self, _r: &rel::Relation, _a: &rel::Expr) -> Bool<'c> {
+		self.bool_true()
+	}
+
+	pub fn encode_notnull(&self, _r: &rel::Relation, _a: &rel::Expr) -> Bool<'c> {
+		self.bool_true()
+	}
+
+	pub fn encode_fd(
+		&self,
+		_r: &rel::Relation,
+		_x: &Vec<rel::Expr>,
+		_y: &Vec<rel::Expr>,
+	) -> Bool<'c> {
+		self.bool_true()
+	}
+
 	pub fn empty(ctx: Rc<Ctx<'c>>) -> Self {
 		Self::new(ctx, vector![])
 	}
@@ -773,6 +820,57 @@ impl<'c> Eval<&Expr, Dynamic<'c>> for &Z3Env<'c> {
 					.or_insert_with(|| self.ctx.var(&expr.ty(), "h"))
 					.clone()
 			},
+		}
+	}
+}
+
+impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
+	fn eval(self, constraints: &Vec<constraint::Constraint>) -> Bool<'c> {
+		use constraint::Constraint::*;
+		let z3_ctx = self.ctx.z3_ctx();
+
+		let encoded: Vec<Bool<'c>> = constraints
+			.iter()
+			.map(|c| match c {
+				RelEq { r1, r2 } => {
+					let l2r = self.encode_subset(r1, r2);
+					let r2l = self.encode_subset(r2, r1);
+					Bool::and(z3_ctx, &[&l2r, &r2l])
+				}
+				AttrsEq { a1, a2 } => {
+					self.equal_expr(a1, a2)
+				},
+				PredEq { p1, p2 } => {
+					self.equal_expr(p1, p2)
+				},
+				SubAttr { a1, a2 } => {
+					self.encode_subattr(a1, a2)
+				},
+				RefAttr { r1, a1, r2, a2 } => {
+					self.encode_refattr(r1, a1, r2, a2)
+				},
+				Unique { r, a } => {
+					self.encode_unique(r, a)
+				},
+				NotNull { r, a } => {
+					self.encode_notnull(r, a)
+				},
+				FD { r, x, y } => {
+					self.encode_fd(r, x, y)
+				},
+				Const { a, r, c } => {
+					self.equal_expr(a, c)
+				},
+				Subset { r1, r2 } => {
+					self.encode_subset(r1, r2)
+				},
+			})
+			.collect();
+
+		if encoded.is_empty() {
+			Bool::from_bool(z3_ctx, true)
+		} else {
+			Bool::and(z3_ctx, &encoded.iter().collect::<Vec<_>>())
 		}
 	}
 }
