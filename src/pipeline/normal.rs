@@ -440,6 +440,21 @@ impl<'c> Z3Env<'c> {
 		Bool::from_bool(self.ctx.z3_ctx(), true)
 	}
 
+	pub fn fresh_tuple_vars_of(&self, schema: &[DataType]) -> Vector<Dynamic<'c>> {
+		schema.iter().map(|ty| self.ctx.var(ty, "t")).collect()
+	}
+
+	pub fn rel_app(
+        &self,
+        name: &str,
+        args: &[Dynamic<'c>],
+        result_ty: &DataType,
+        nullable: bool,
+    ) -> Dynamic<'c> {
+        let arg_refs: Vec<&Dynamic<'c>> = args.iter().collect();
+        self.ctx.app(name, &arg_refs, result_ty, nullable)
+    }
+
 	pub fn equal_expr(&self, _e1: &rel::Expr, _e2: &rel::Expr) -> Bool<'c> {
 		self.bool_true()
 	}
@@ -690,24 +705,37 @@ fn table_name(head: &Head, env: &Z3Env, squashed: bool, domain: Vec<DataType>) -
 impl<'c> Eval<&Neutral, Bool<'c>> for &Z3Env<'c> {
 	fn eval(self, shared::Neutral(head, args): &Neutral) -> Bool<'c> {
 		let domain = args.iter().map(|a| a.ty()).collect();
-		let args = args.iter().map(|v| self.eval(v)).collect_vec();
+		/* let args = args.iter().map(|v| self.eval(v)).collect_vec();
 		let args = args.iter().collect_vec();
 		self.ctx
 			.app(&(table_name(head, self, true, domain) + "p"), &args, &DataType::Boolean, false)
 			.as_bool()
-			.unwrap()
+			.unwrap() */
+		let dargs: Vec<Dynamic<'c>> = args.iter().map(|v| self.eval(v)).collect();
+		self.rel_app(
+			&(table_name(head, self, true, domain) + "p"),
+			&dargs, 
+			&DataType::Boolean, 
+			false,
+		).as_bool().unwrap()
 	}
 }
 
 impl<'c> Eval<&Neutral, Int<'c>> for &Z3Env<'c> {
 	fn eval(self, shared::Neutral(head, args): &Neutral) -> Int<'c> {
 		let domain = args.iter().map(|a| a.ty()).collect();
-		let args = args.iter().map(|v| self.eval(v)).collect_vec();
-		let args = args.iter().collect_vec();
+		let dargs = args.iter().map(|v| self.eval(v)).collect_vec();
+		/* let args = args.iter().collect_vec();
 		self.ctx
 			.app(&table_name(head, self, false, domain), &args, &DataType::Integer, false)
 			.as_int()
-			.unwrap()
+			.unwrap() */
+		self.rel_app(
+			&table_name(head, self, false, domain),
+			&dargs,
+			&DataType::Integer,
+			false,
+		).as_int().unwrap()
 	}
 }
 
