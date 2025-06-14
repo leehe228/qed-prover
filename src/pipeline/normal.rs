@@ -406,7 +406,7 @@ impl Unify<partial::UExpr> for Env {
 		let ctx = Rc::new(Ctx::new(Solver::new(&z3_ctx)));
 		let subst = shared::Expr::vars(0, self.types.clone()).into_iter().map(Some).collect();
 		let z3_subst: Vector<_> = self.iter().map(|ty| ctx.var(ty, "v")).collect();
-		let env = &stable::Env(subst, Z3Env::new(ctx.clone(), z3_subst.clone()));
+		let env = &stable::Env(subst, Z3Env::new(ctx.clone(), z3_subst.clone(), self.catalog.clone()));
 		let t1 = env.eval(t1);
 		let t2 = env.eval(t2);
 		let t1: UExpr = self.eval(t1);
@@ -432,6 +432,7 @@ pub struct Z3Env<'c> {
 	pub h_ops: Rc<RefCell<HOpMap<'c>>>,
 	pub aggs: Rc<RefCell<AggMap<'c>>>,
 	pub rel_h_ops: Rc<RefCell<RelHOpMap<'c>>>,
+	pub catalog: Rc<Vec<Schema>>,
 }
 
 impl<'c> Z3Env<'c> {
@@ -821,23 +822,24 @@ impl<'c> Z3Env<'c> {
         forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
-	pub fn empty(ctx: Rc<Ctx<'c>>) -> Self {
-		Self::new(ctx, vector![])
+	pub fn empty(ctx: Rc<Ctx<'c>>, catalog: Rc<Vec<Schema>>) -> Self {
+		Self::new(ctx, vector![], catalog)
 	}
 
-	pub fn new(ctx: Rc<Ctx<'c>>, subst: Vector<Dynamic<'c>>) -> Self {
+	pub fn new(ctx: Rc<Ctx<'c>>, subst: Vector<Dynamic<'c>>, catalog: Rc<Vec<Schema>>) -> Self {
 		Z3Env {
 			ctx,
 			subst,
 			h_ops: Default::default(),
 			aggs: Default::default(),
 			rel_h_ops: Default::default(),
+			catalog,
 		}
 	}
 
 	pub fn extend(&self, scope: &Vector<DataType>) -> Self {
 		let vars = scope.into_iter().map(|ty| self.ctx.var(ty, "v")).collect();
-		Z3Env { subst: self.subst.clone() + vars, ..self.clone() }
+		Z3Env { subst: self.subst.clone() + vars, catalog: self.catalog.clone(), ..self.clone() }
 	}
 
 	pub fn extend_vals(&self, vals: &Vector<Dynamic<'c>>) -> Self {
@@ -1354,7 +1356,19 @@ pub struct TupCtx<'c> {
 impl<'c> TupCtx<'c> {
 	#[inline]
 	pub fn attr(&self, z3: &Z3Env<'c>, idx: usize, ty: &DataType) -> Dynamic<'c> {
-		let nullable = true; // TODO: look up real nullablity from catalog
+		let mut nullable = true;
+
+		if let Some(body) = self.rel_name.strip_prefix('r') {
+			let num: String = body.chars().take_while(|c| c.is_ascii_digit()).collect();
+			if let Ok(tid) = num.parse::<usize>() {
+				if let Some(schema) = z3.catalog.get(tid) {
+					if let Some(&n) = schema.nullabilities.get(idx) {
+						nullable = n;
+					}
+				}
+			}
+		}
+
 		z3.attr_app(
 			&self.rel_name,
 			idx,

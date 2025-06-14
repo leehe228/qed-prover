@@ -28,7 +28,7 @@ impl<'c> UnifyEnv<'c> {
 impl UnifyEnv<'_> {
 	fn envs(&self) -> (Z3Env, Z3Env) {
 		let UnifyEnv(ctx, subst1, subst2, _) = self;
-		let z3_env = Z3Env::empty(ctx.clone());
+		let z3_env = Z3Env::empty(ctx.clone(), Rc::new(Vec::new()));
 		let env1 = z3_env.extend_vals(subst1);
 		let env2 = z3_env.extend_vals(subst2);
 		(env1, env2)

@@ -71,7 +71,7 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 	}
 	let catalog_rc = Rc::new(schemas.clone());
 	// let nom_env = &vector![];
-	let nom_env = NormEnv::new(vector![], catalog_rc);
+	let nom_env = NormEnv::new(vector![], catalog_rc.clone());
 	let eval_nom = |rel: syntax::Relation| -> normal::Relation {
 		let rel = (&partial::Env::default()).eval(rel);
 		// nom_env.eval(rel)
@@ -89,7 +89,7 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 	let config = Config::new();
 	let z3_ctx = &Context::new(&config);
 	let ctx = Rc::new(Ctx::new_with_stats(Solver::new(z3_ctx), stats));
-	let z3_env = Z3Env::empty(ctx.clone());
+	let z3_env = Z3Env::empty(ctx.clone(), catalog_rc.clone());
 	let eval_stb = |nom: normal::Relation| -> normal::Relation {
 		let env = &stable::Env(vector![], z3_env.clone());
 		let stb = env.eval(nom);
