@@ -10,7 +10,7 @@ use indenter::indented;
 use itertools::Itertools;
 use num::ToPrimitive;
 use z3::ast::{exists_const, Ast, Bool, Dynamic, Int, Real as Re, String as Str};
-use z3::{Config, Context, Solver};
+use z3::{Config, Context, Solver, Sort};
 
 use super::shared::{Ctx, Lambda, Sigma, Typed};
 use super::stable::{self, stablize};
@@ -428,6 +428,7 @@ pub type AggMap<'c> =
 #[derive(Clone)]
 pub struct Z3Env<'c> {
 	pub ctx: Rc<Ctx<'c>>,
+	pub tuple_sort: Sort<'c>,
 	pub subst: Vector<Dynamic<'c>>,
 	pub h_ops: Rc<RefCell<HOpMap<'c>>>,
 	pub aggs: Rc<RefCell<AggMap<'c>>>,
@@ -542,8 +543,7 @@ impl<'c> Z3Env<'c> {
 		use z3::ast::{forall_const, exists_const};
 
         let z3_ctx  = self.ctx.z3_ctx();
-        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
-                                              z3::Symbol::String("Tuple".into()));
+        let tuple_s = &self.tuple_sort;
 
         // bound variables
         let t  = Dynamic::fresh_const(z3_ctx, "t",  &tuple_s);
@@ -620,8 +620,7 @@ impl<'c> Z3Env<'c> {
 		use z3::ast::{forall_const, exists_const};
 
         let z3_ctx  = self.ctx.z3_ctx();
-        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
-                                              z3::Symbol::String("Tuple".into()));
+        let tuple_s = &self.tuple_sort;
 
         let t  = Dynamic::fresh_const(z3_ctx, "t",  &tuple_s);
         let tp = Dynamic::fresh_const(z3_ctx, "t'", &tuple_s);
@@ -668,8 +667,7 @@ impl<'c> Z3Env<'c> {
 		use z3::ast::forall_const;
 
         let z3_ctx  = self.ctx.z3_ctx();
-        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
-                                              z3::Symbol::String("Tuple".into()));
+        let tuple_s = &self.tuple_sort;
 
         let t  = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
         let u  = Dynamic::fresh_const(z3_ctx, "u", &tuple_s);
@@ -703,8 +701,7 @@ impl<'c> Z3Env<'c> {
 		use z3::ast::forall_const;
 
         let z3_ctx  = self.ctx.z3_ctx();
-        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
-                                              z3::Symbol::String("Tuple".into()));
+        let tuple_s = &self.tuple_sort;
 
         let t = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
 
@@ -744,8 +741,7 @@ impl<'c> Z3Env<'c> {
                 "FD must have non-empty X and Y");
 
         let z3_ctx  = self.ctx.z3_ctx();
-        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
-                                              z3::Symbol::String("Tuple".into()));
+        let tuple_s = &self.tuple_sort;
 
         let t  = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
         let u  = Dynamic::fresh_const(z3_ctx, "u", &tuple_s);
@@ -794,8 +790,7 @@ impl<'c> Z3Env<'c> {
 		use z3::ast::forall_const;
 
         let z3_ctx  = self.ctx.z3_ctx();
-        let tuple_s = z3::Sort::uninterpreted(z3_ctx,
-                                              z3::Symbol::String("Tuple".into()));
+        let tuple_s = &self.tuple_sort;
 
         let t = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
 
@@ -827,6 +822,7 @@ impl<'c> Z3Env<'c> {
 	}
 
 	pub fn new(ctx: Rc<Ctx<'c>>, subst: Vector<Dynamic<'c>>, catalog: Rc<Vec<Schema>>) -> Self {
+		let tuple_sort = Sort::uninterpreted(ctx.z3_ctx(), z3::Symbol::String("Tuple".into()));
 		Z3Env {
 			ctx,
 			subst,
@@ -834,6 +830,7 @@ impl<'c> Z3Env<'c> {
 			aggs: Default::default(),
 			rel_h_ops: Default::default(),
 			catalog,
+			tuple_sort,
 		}
 	}
 
@@ -987,7 +984,7 @@ impl<'c> Z3Env<'c> {
 		};
 		let body = inner_env.eval(&uexpr);
 		// r => exists x. v <cmp> x == r /\ |R(x)|
-		let p = |res| self.exists(&vars, &Bool::and(z3_ctx, &[&cmp._eq(res), &body]));
+		/* let p = |res| self.exists(&vars, &Bool::and(z3_ctx, &[&cmp._eq(res), &body]));
 		match quant {
 			"SOME" | "ANY" => p(&ctx.bool(Some(true))).ite(
 				&ctx.bool(Some(true)),
@@ -997,6 +994,21 @@ impl<'c> Z3Env<'c> {
 				&ctx.bool(Some(false)),
 				&p(&ctx.bool(None)).ite(&ctx.bool(None), &ctx.bool(Some(true))),
 			),
+		} */
+		let any_true = self.exists(&vars, &Bool::and(z3_ctx, &[&cmp._eq(&ctx.bool(Some(true))), &body]));
+        let any_false = self.exists(&vars, &Bool::and(z3_ctx, &[&cmp._eq(&ctx.bool(Some(false))), &body]));
+        let any_null = self.exists(&vars, &Bool::and(z3_ctx, &[&cmp._eq(&ctx.bool(None)), &body]));
+        match quant {
+            // ANY / SOME
+            "ANY" | "SOME" => any_true.ite(
+                &ctx.bool(Some(true)),
+                &any_null.ite(&ctx.bool(None), &ctx.bool(Some(false))),
+            ),
+            // ALL
+            "ALL" | _ => any_false.ite(
+                &ctx.bool(Some(false)),
+                &any_null.ite(&ctx.bool(None), &ctx.bool(Some(true))),
+            ),
 		}
 	}
 }
