@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use z3::{Config, Context, Solver};
 
 use crate::pipeline::normal::Z3Env;
+use crate::pipeline::normal::Env as NormEnv;
 use crate::pipeline::shared::{Ctx, Eval, Schema};
 use crate::pipeline::unify::{Unify, UnifyEnv};
 
@@ -68,10 +69,13 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 	if rel1 == rel2 {
 		return (true, stats);
 	}
-	let nom_env = &vector![];
+	let catalog_rc = Rc::new(schemas.clone());
+	// let nom_env = &vector![];
+	let nom_env = NormEnv::new(vector![], catalog_rc);
 	let eval_nom = |rel: syntax::Relation| -> normal::Relation {
 		let rel = (&partial::Env::default()).eval(rel);
-		nom_env.eval(rel)
+		// nom_env.eval(rel)
+		(&nom_env).eval(rel)
 	};
 	let norm_start = Instant::now();
 	let rel1 = eval_nom(rel1);
@@ -89,7 +93,8 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 	let eval_stb = |nom: normal::Relation| -> normal::Relation {
 		let env = &stable::Env(vector![], z3_env.clone());
 		let stb = env.eval(nom);
-		nom_env.eval(stb)
+		// nom_env.eval(stb)
+		(&nom_env).eval(stb)
 	};
 	let stb_start = Instant::now();
 	let rel1 = eval_stb(rel1);

@@ -109,6 +109,10 @@ impl Relation {
 			_ => false
 		}
 	}
+
+	pub fn schema(&self, catalog: &[Schema]) -> Vec<DataType> {
+        self.scope(catalog).into_iter().collect::<Vec<_>>()
+    }
 }
 
 impl Eval<Relation, syntax::Relation> for Env<'_> {

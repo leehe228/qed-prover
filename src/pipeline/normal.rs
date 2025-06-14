@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Write};
-use std::ops::Range;
+use std::ops::{Range, Add, Deref};
 use std::rc::Rc;
 
 use anyhow::bail;
@@ -18,6 +18,7 @@ use super::unify::{Unify, UnifyEnv};
 use crate::pipeline::relation::{num_cmp, num_op};
 use crate::pipeline::relation as rel;
 use crate::pipeline::shared::{DataType, Eval, Neutral as Neut, Terms, VL};
+use crate::pipeline::shared::Schema;
 use crate::pipeline::{partial, shared};
 use crate::pipeline::constraint;
 
@@ -281,7 +282,38 @@ impl Logic {
 	}
 }
 
-pub type Env = Vector<DataType>;
+// pub type Env = Vector<DataType>;
+#[derive(Clone)]
+pub struct Env {
+	types: Vector<DataType>,
+	catalog: Rc<Vec<Schema>>,
+}
+
+impl Env {
+	pub fn new(types: Vector<DataType>, catalog: Rc<Vec<Schema>>) -> Self {
+		Self { types, catalog }
+	}
+
+    pub fn extend(&self, scope: &Vector<DataType>) -> Self {
+        Self { types: self.types.clone() + scope.clone(), catalog: self.catalog.clone() }
+    }
+
+	pub fn from_types(types: Vector<DataType>) -> Self {
+        Self { types, catalog: Rc::new(Vec::new()) }
+    }
+}
+
+impl Deref for Env {
+    type Target = Vector<DataType>;
+    fn deref(&self) -> &Self::Target { &self.types }
+}
+
+impl Add<&Vector<DataType>> for &Env {
+    type Output = Env;
+    fn add(self, rhs: &Vector<DataType>) -> Env {
+        Env { types: self.types.clone() + rhs.clone(), catalog: self.catalog.clone() }
+    }
+}
 
 impl Eval<partial::Aggr, Expr> for &Env {
 	fn eval(self, agg: partial::Aggr) -> Expr {
@@ -372,7 +404,7 @@ impl Unify<partial::UExpr> for Env {
 		let config = Config::new();
 		let z3_ctx = Context::new(&config);
 		let ctx = Rc::new(Ctx::new(Solver::new(&z3_ctx)));
-		let subst = shared::Expr::vars(0, self.clone()).into_iter().map(Some).collect();
+		let subst = shared::Expr::vars(0, self.types.clone()).into_iter().map(Some).collect();
 		let z3_subst: Vector<_> = self.iter().map(|ty| ctx.var(ty, "v")).collect();
 		let env = &stable::Env(subst, Z3Env::new(ctx.clone(), z3_subst.clone()));
 		let t1 = env.eval(t1);
