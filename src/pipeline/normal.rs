@@ -456,10 +456,35 @@ impl<'c> Z3Env<'c> {
     }
 
 	pub fn equal_expr(&self, e1: &rel::Expr, e2: &rel::Expr) -> Bool<'c> {
-		let d1 = self.eval(e1);
+		use rel::Expr::*;
+
+		if let (
+            Op { op: op1, args: cols1, ty: _, rel: None },
+            Op { op: op2, args: cols2, ty: _, rel: None },
+        ) = (e1, e2)
+            && op1.eq_ignore_ascii_case("ROW")
+            && op2.eq_ignore_ascii_case("ROW")
+            && cols1.len() == cols2.len()
+        {
+            let col_eqs: Vec<Dynamic<'c>> = cols1
+                .iter()
+                .zip(cols2)
+                .map(|(c1, c2)| {
+                    // 각 칼럼은 개별 타입을 가질 수 있다.
+                    assert_eq!(c1.ty(), c2.ty(), "ROW-equality: column type mismatch");
+                    self.equal(c1.ty(), &self.eval(c1), &self.eval(c2))
+                })
+                .collect();
+
+            // AND 후 NULL-able Bool → concrete Bool 변환
+            let all = self.ctx.bool_and_v(&col_eqs.iter().collect::<Vec<_>>());
+            return self.ctx.bool_is_true(&all);
+        }
+
+        // 기본 : 단일 칼럼 비교
+        let d1 = self.eval(e1);
         let d2 = self.eval(e2);
 
-		// Sanity‑check: the two terms must have the same Z3 sort
         assert_eq!(
             d1.get_sort(),
             d2.get_sort(),
@@ -468,15 +493,9 @@ impl<'c> Z3Env<'c> {
             e2
         );
 
-		// Use NULL‑aware equality so that SQL three‑valued logic semantics are preserved.
-        // `self.equal` returns a nullable Boolean encoded as `Dynamic`; convert it back
-        // to a concrete Bool by testing whether the resulting option is TRUE.
         let nullable_eq = self.equal(e1.ty(), &d1, &d2);
-
-		// `bool_is_true` extracts the concrete `Bool<'c>` that is TRUE exactly when
-        // the nullable equality is TRUE (and FALSE otherwise, including NULL).
         self.ctx.bool_is_true(&nullable_eq)
-    }
+   }
 
 	pub fn encode_subset(&self, t1: &TupCtx<'c>, r1: &rel::Relation, t2: &TupCtx<'c>, r2: &rel::Relation) -> Bool<'c> {
 		let z3_ctx = self.ctx.z3_ctx();
