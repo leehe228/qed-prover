@@ -19,6 +19,7 @@ pub mod syntax;
 #[cfg(test)]
 mod tests;
 pub mod unify;
+pub mod constraint;
 
 #[derive(Serialize, Deserialize)]
 pub struct Input {
@@ -26,6 +27,8 @@ pub struct Input {
 	pub queries: (relation::Relation, relation::Relation),
 	#[serde(default)]
 	help: (String, String),
+	#[serde(default)]
+	pub constraints: Vec<constraint::Constraint>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -45,7 +48,7 @@ pub struct Stats {
 	pub total_duration: Duration,
 }
 
-pub fn unify(Input { schemas, queries: (rel1, rel2), help }: Input) -> (bool, Stats) {
+pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input) -> (bool, Stats) {
 	let mut stats = Stats::default();
 	let subst = vector![];
 	let env = relation::Env(&schemas, &subst, 0);
@@ -97,7 +100,8 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help }: Input) -> (bool, St
 	if rel1 == rel2 {
 		return (true, ctx.stats.borrow().clone());
 	}
-	let env = UnifyEnv(ctx.clone(), vector![], vector![]);
+	let phi = (&z3_env).eval(&constraints);
+	let env = UnifyEnv(ctx.clone(), vector![], vector![], phi);
 	let unify_start = Instant::now();
 	let res = env.unify(&rel1, &rel2);
 	ctx.stats.borrow_mut().unify_duration = unify_start.elapsed();

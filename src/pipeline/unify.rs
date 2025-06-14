@@ -18,11 +18,16 @@ pub trait Unify<T> {
 }
 
 #[derive(Clone)]
-pub struct UnifyEnv<'c>(pub Rc<Ctx<'c>>, pub Vector<Dynamic<'c>>, pub Vector<Dynamic<'c>>);
+pub struct UnifyEnv<'c>(pub Rc<Ctx<'c>>, pub Vector<Dynamic<'c>>, pub Vector<Dynamic<'c>>, pub Bool<'c>);
+
+impl<'c> UnifyEnv<'c> {
+	#[inline]
+	fn phi(&self) -> &Bool<'c> { &self.3 }
+}
 
 impl UnifyEnv<'_> {
 	fn envs(&self) -> (Z3Env, Z3Env) {
-		let UnifyEnv(ctx, subst1, subst2) = self;
+		let UnifyEnv(ctx, subst1, subst2, _) = self;
 		let z3_env = Z3Env::empty(ctx.clone());
 		let env1 = z3_env.extend_vals(subst1);
 		let env2 = z3_env.extend_vals(subst2);
@@ -38,9 +43,9 @@ where UnifyEnv<'c>: Unify<T>
 		if scp1 != scp2 {
 			return false;
 		}
-		let UnifyEnv(ctx, subst1, subst2) = self;
+		let UnifyEnv(ctx, subst1, subst2, _) = self;
 		let vars = &scp1.iter().map(|ty| ctx.var(ty, "v")).collect();
-		let env = UnifyEnv(ctx.clone(), subst1 + vars, subst2 + vars);
+		let env = UnifyEnv(ctx.clone(), subst1 + vars, subst2 + vars, self.phi().clone());
 		env.unify(body1, body2)
 	}
 }
@@ -66,15 +71,23 @@ impl<'c> Unify<UExpr> for UnifyEnv<'c> {
 
 impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 	fn unify(&self, es1: &Vec<Expr>, es2: &Vec<Expr>) -> bool {
-		let UnifyEnv(ctx, _, _) = self;
+		let UnifyEnv(ctx, _, _, _) = self;
 		es1.len() == es2.len() && {
 			let (ref env1, ref env2) = self.envs();
 			let expr_eqs =
 				es1.iter().zip(es2).map(|(e1, e2)| env1.eval(e1)._eq(&env2.eval(e2))).collect_vec();
 			let eq = Bool::and(ctx.z3_ctx(), &expr_eqs.iter().collect_vec());
 			let h_ops_eq = env1.extract_equiv();
+			// let phi = self.phi();
+			let antecedent = Bool::and(ctx.z3_ctx(), &[self.phi(), &h_ops_eq]);
+			
+			// println!("constraints:\n{}\n", self.phi());
+			// println!("antecedent:\n{}\n", antecedent);
+			// println!("goal(eq):\n{}\n", eq);
+
 			let unify_start = Instant::now();
-			let (res, timed_out) = smt(&ctx.solver, h_ops_eq.implies(&eq));
+			// let (res, timed_out) = smt(&ctx.solver, h_ops_eq.implies(&eq));
+			let (res, timed_out) = smt(&ctx.solver, antecedent.implies(&eq));
 			ctx.update_smt_duration(unify_start.elapsed(), timed_out);
 			res
 		}
@@ -89,7 +102,8 @@ impl Z3Env<'_> {
 			.iter()
 			.tuple_combinations()
 			.filter_map(|(((op1, args1, rel1, env1), v1), ((op2, args2, rel2, env2), v2))| {
-				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone());
+				let dummy: Bool<'_> = Bool::from_bool(ctx.z3_ctx(), true);
+				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), dummy);
 				(op1 == op2 && env.unify(args1, args2) && env.unify(rel1, rel2)).then(|| v1._eq(v2))
 			})
 			.collect_vec();
@@ -97,7 +111,8 @@ impl Z3Env<'_> {
 			.iter()
 			.tuple_combinations()
 			.filter_map(|(((op1, lam1, env1), v1), ((op2, lam2, env2), v2))| {
-				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone());
+				let dummy: Bool<'_> = Bool::from_bool(ctx.z3_ctx(), true);
+				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), dummy);
 				(op1 == op2 && env.unify(lam1, lam2)).then(|| v1._eq(v2))
 			})
 			.collect_vec();
@@ -109,7 +124,8 @@ impl Z3Env<'_> {
 					((op1, args1, rel1, env1, sq1), (n1, dom1)),
 					((op2, args2, rel2, env2, sq2), (n2, dom2)),
 				)| {
-					let env = UnifyEnv(ctx.clone(), env1.clone(), env2.clone());
+					let dummy: Bool<'_> = Bool::from_bool(ctx.z3_ctx(), true);
+					let env = UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), dummy);
 					(op1 == op2
 						&& sq1 == sq2 && dom1 == dom2
 						&& env.unify(args1, args2)
@@ -180,7 +196,7 @@ impl<'c> Unify<Term> for UnifyEnv<'c> {
 			return false;
 		}
 		log::info!("Unifying\n{}\n{}", t1, t2);
-		let UnifyEnv(ctx, subst1, subst2) = self;
+		let UnifyEnv(ctx, subst1, subst2, phi) = self;
 		let vars1 = s1.iter().map(|ty| ctx.var(ty, "v")).collect();
 		let subst1 = subst1 + &vars1;
 		perms(s1.iter().cloned().collect(), vars1.into_iter().collect()).take(24).enumerate().any(
@@ -188,7 +204,7 @@ impl<'c> Unify<Term> for UnifyEnv<'c> {
 				ctx.stats.borrow_mut().nontrivial_perms |= i > 0;
 				assert_eq!(vars2.len(), s2.len());
 				log::info!("Permutation: {:?}", vars2);
-				UnifyEnv(ctx.clone(), subst1.clone(), subst2 + &vars2.into()).unify(t1, t2)
+				UnifyEnv(ctx.clone(), subst1.clone(), subst2 + &vars2.into(), phi.clone()).unify(t1, t2)
 			},
 		)
 	}
@@ -196,7 +212,7 @@ impl<'c> Unify<Term> for UnifyEnv<'c> {
 
 impl Unify<Inner> for UnifyEnv<'_> {
 	fn unify(&self, t1: &Inner, t2: &Inner) -> bool {
-		let UnifyEnv(ctx, _, _) = self;
+		let UnifyEnv(ctx, _, _, _) = self;
 		let (ref env1, ref env2) = self.envs();
 		let z3_ctx = ctx.z3_ctx();
 		let (logic1, apps1) = (env1.eval(&t1.logic), env1.eval(&t1.apps));
@@ -208,11 +224,19 @@ impl Unify<Inner> for UnifyEnv<'_> {
 		solver.push();
 		solver.assert(&Bool::or(z3_ctx, &[&logic1, &logic2]));
 		let h_ops_equiv = env1.extract_equiv();
+		// let phi = self.phi();
+		let antecedent = Bool::and(z3_ctx, &[self.phi(), &h_ops_equiv]);
 		solver.pop(1);
 		log::info!("{}", equiv);
 		log::info!("{}", h_ops_equiv);
+
+		// println!("constraints:\n{}\n", self.phi());
+		// println!("antecedent:\n{}\n", antecedent);
+		// println!("goal(eq):\n{}\n", equiv);
+
 		let unify_start = Instant::now();
-		let (res, timed_out) = smt(solver, h_ops_equiv.implies(&equiv));
+		// let (res, timed_out) = smt(solver, h_ops_equiv.implies(&equiv));
+		let (res, timed_out) = smt(solver, antecedent.implies(&equiv));
 		ctx.update_smt_duration(unify_start.elapsed(), timed_out);
 		res
 	}
