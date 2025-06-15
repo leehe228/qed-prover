@@ -12,3 +12,4 @@ target/
 
 *.result
 output.txt
+output*.txt
