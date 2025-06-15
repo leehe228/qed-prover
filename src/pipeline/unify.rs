@@ -86,7 +86,7 @@ impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 			let expr_eqs =
 				es1.iter().zip(es2).map(|(e1, e2)| env1.eval(e1)._eq(&env2.eval(e2))).collect_vec();
 			let eq = Bool::and(ctx.z3_ctx(), &expr_eqs.iter().collect_vec());
-			let h_ops_eq = env1.extract_equiv();
+			let h_ops_eq = env1.extract_equiv(self.phi());
 			// let phi = self.phi();
 			let antecedent = Bool::and(ctx.z3_ctx(), &[self.phi(), &h_ops_eq]);
 			
@@ -107,15 +107,16 @@ impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 }
 
 impl Z3Env<'_> {
-	pub fn extract_equiv(&self) -> Bool {
+	pub fn extract_equiv(&self, phi: &Bool<'_>) -> Bool {
+		use itertools::Itertools;
 		let Z3Env { ctx, h_ops, aggs, rel_h_ops, .. } = self;
+		let base_phi = phi.clone();
 		let (h_ops, aggs, rel_h_ops) = (&*h_ops.borrow(), &*aggs.borrow(), &*rel_h_ops.borrow());
 		let expr_eqs = h_ops
 			.iter()
 			.tuple_combinations()
 			.filter_map(|(((op1, args1, rel1, env1), v1), ((op2, args2, rel2, env2), v2))| {
-				let dummy: Bool<'_> = Bool::from_bool(ctx.z3_ctx(), true);
-				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), dummy);
+				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), base_phi.clone());
 				(op1 == op2 && env.unify(args1, args2) && env.unify(rel1, rel2)).then(|| v1._eq(v2))
 			})
 			.collect_vec();
@@ -123,8 +124,7 @@ impl Z3Env<'_> {
 			.iter()
 			.tuple_combinations()
 			.filter_map(|(((op1, lam1, env1), v1), ((op2, lam2, env2), v2))| {
-				let dummy: Bool<'_> = Bool::from_bool(ctx.z3_ctx(), true);
-				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), dummy);
+				let env = &UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), base_phi.clone());
 				(op1 == op2 && env.unify(lam1, lam2)).then(|| v1._eq(v2))
 			})
 			.collect_vec();
@@ -136,8 +136,7 @@ impl Z3Env<'_> {
 					((op1, args1, rel1, env1, sq1), (n1, dom1)),
 					((op2, args2, rel2, env2, sq2), (n2, dom2)),
 				)| {
-					let dummy: Bool<'_> = Bool::from_bool(ctx.z3_ctx(), true);
-					let env = UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), dummy);
+					let env = UnifyEnv(ctx.clone(), env1.clone(), env2.clone(), base_phi.clone());
 					(op1 == op2
 						&& sq1 == sq2 && dom1 == dom2
 						&& env.unify(args1, args2)
@@ -268,7 +267,7 @@ impl Unify<Inner> for UnifyEnv<'_> {
 		self.assert_phi();
 
 		solver.assert(&Bool::or(z3_ctx, &[&logic1, &logic2]));
-		let h_ops_equiv = env1.extract_equiv();
+		let h_ops_equiv = env1.extract_equiv(self.phi());
 		// let phi = self.phi();
 		let antecedent = Bool::and(z3_ctx, &[self.phi(), &h_ops_equiv]);
 		solver.pop(1);

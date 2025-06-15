@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Write};
 use std::ops::{Range, Add, Deref};
 use std::rc::Rc;
-use std::iter::{self, FromIterator};
+use std::iter::{self, FromIterator, Repeat};
 
 use anyhow::bail;
 use imbl::{vector, HashSet, Vector};
@@ -626,7 +626,8 @@ impl<'c> Z3Env<'c> {
         };
 
         // a₂(t') = a₁(t)   (Null-세이프 동등 / strict Bool)
-        let eq_val  = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
+        // let eq_val  = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
+		let eq_val = self.ctx.bool_is_true(&self.equal_with_hint(ty, &v1, &v2, true));
 
         // 본문 : R₂(t') ∧ a₂(t') = a₁(t)
         let body = Bool::and(z3_ctx, &[&mem("r2", &tp), &eq_val]);
@@ -698,7 +699,8 @@ impl<'c> Z3Env<'c> {
             null._eq(&v1).not()
         };
 
-        let eq_val = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
+        // let eq_val = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
+		let eq_val = self.ctx.bool_is_true(&self.equal_with_hint(ty, &v1, &v2, true));
 
         let body   = Bool::and(z3_ctx, &[&mem("r2", &tp), &eq_val]);
 
@@ -1028,6 +1030,33 @@ impl<'c> Z3Env<'c> {
 			},
 			_ => unreachable!(),
 		}
+	}
+
+	pub fn equal_with_hint(
+		&self,
+		ty: DataType,
+		a1: &Dynamic<'c>,
+		a2: &Dynamic<'c>,
+		nonnull_hint: bool,
+	) -> Dynamic<'c> {
+		if nonnull_hint {
+			return self.equal_nonnull(&ty, a1, a2);
+		}
+		self.equal(ty, a1, a2)
+	}
+
+	pub fn cmp_with_hint(
+		&self,
+		ty: DataType,
+		cmp: &str,
+		a1: &Dynamic<'c>,
+		a2: &Dynamic<'c>,
+		nonnull_hint: bool,
+	) -> Dynamic<'c> {
+		if nonnull_hint {
+			return self.cmp_nonnull(ty.clone(), cmp, a1, a2);
+		}
+		self.cmp(ty, cmp, a1, a2)
 	}
 
 	#[inline]
@@ -1469,7 +1498,7 @@ pub struct TupCtx<'c> {
 impl<'c> TupCtx<'c> {
 	#[inline]
 	pub fn attr(&self, z3: &Z3Env<'c>, idx: usize, ty: &DataType) -> Dynamic<'c> {
-		let mut nullable = true;
+		/* let mut nullable = true;
 
 		if let Some(body) = self.rel_name.strip_prefix('r') {
 			let num: String = body.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -1480,7 +1509,31 @@ impl<'c> TupCtx<'c> {
 					}
 				}
 			}
-		}
+		} */
+
+		let mut nullable = true;
+
+		if let Ok(tid) = self
+			.rel_name
+			.trim_start_matches('r')
+			.trim_start_matches('p')
+			.chars()
+			.take_while(|c| c.is_ascii_digit())
+			.collect::<String>()
+			.parse::<usize>()
+		{
+			if let Some(schema) = z3.catalog.get(tid) {
+				if let Some(n) = schema.nullabilities.get(idx) {
+					nullable = *n;
+				}
+			}
+		} 
+		/* else if let Some(schema) = z3.catalog.iter().find(|s| s.name == self.rel_name) {
+			if let Some(n) = schema.nullabilities.get(idx) {
+				nullable = *n;
+			}
+		} */
+		else { }
 
 		z3.attr_app(
 			&self.rel_name,
