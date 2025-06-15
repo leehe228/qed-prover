@@ -575,12 +575,32 @@ impl<'c> Z3Env<'c> {
         self.ctx.bool_is_true(&nullable_eq)
     }
 
-	pub fn equal_nonnull(
+	fn equal_nonnull(
 		&self, ty: &DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>,
 	) -> Dynamic<'c> {
-		let tri = self.equal(ty.clone(), a1, a2);
-		let strict = self.ctx.bool_is_true(&tri);
-		self.ctx.bool_some(strict)
+		use shared::DataType::*;
+		let ctx = &self.ctx;
+		let strict_sort = ctx.strict_sort(ty);
+
+		// strict 값이면 Option<…>::Some(_) 로 래핑
+		let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
+			if v.get_sort() == strict_sort {
+				match ty {
+					Integer => ctx.int_some(v.as_int().unwrap()),
+					Real    => ctx.real_some(v.as_real().unwrap()),
+					Boolean => ctx.bool_some(v.as_bool().unwrap()),
+					String  => ctx.string_some(v.as_string().unwrap()),
+					Custom(_) => v.clone(),
+				}
+			} else { v.clone() }
+		};
+		let v1 = lift(a1);
+		let v2 = lift(a2);
+
+		// 이제 두 피연산자는 모두 nullable sort → equal()이 재귀하지 않는다
+		let tri = self.equal(ty.clone(), &v1, &v2);
+		let strict = ctx.bool_is_true(&tri);
+		ctx.bool_some(strict)
 	}
 
 	pub fn cmp_nonnull(
@@ -590,9 +610,27 @@ impl<'c> Z3Env<'c> {
         a1: &Dynamic<'c>,
         a2: &Dynamic<'c>,
     ) -> Dynamic<'c> {
-        let tri = self.cmp(ty.clone(), cmp, a1, a2);
-        let strict = self.ctx.bool_is_true(&tri);
-        self.ctx.bool_some(strict)
+        use shared::DataType::*;
+        let ctx = &self.ctx;
+        let strict_sort = ctx.strict_sort(&ty);
+
+        let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
+            if v.get_sort() == strict_sort {
+                match ty {
+                    Integer => ctx.int_some(v.as_int().unwrap()),
+                    Real    => ctx.real_some(v.as_real().unwrap()),
+                    String  => ctx.string_some(v.as_string().unwrap()),
+                    Boolean => ctx.bool_some(v.as_bool().unwrap()),
+                    Custom(_) => v.clone(),
+                }
+            } else { v.clone() }
+        };
+        let v1 = lift(a1);
+        let v2 = lift(a2);
+
+        let tri = self.cmp(ty.clone(), cmp, &v1, &v2);
+        let strict = ctx.bool_is_true(&tri);
+        ctx.bool_some(strict)
     }
 
 	pub fn encode_subset(&self, t1: &TupCtx<'c>, _r1: &rel::Relation, t2: &TupCtx<'c>, _r2: &rel::Relation) -> Bool<'c> {
@@ -666,8 +704,9 @@ impl<'c> Z3Env<'c> {
 
         // ¬null(v1)
         let not_null = {
-            let null = self.ctx.none(&ty).unwrap();
-            null._eq(&v1).not()
+			let null = self.ctx.none(&ty).unwrap();
+			let is_nil = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &null, &v1, true));
+			is_nil.not()
         };
 
         // a₂(t') = a₁(t)   (Null-세이프 동등 / strict Bool)
@@ -740,8 +779,9 @@ impl<'c> Z3Env<'c> {
         let v2   = self.eval_attr(&tup2, a2);
 
         let not_null = {
-            let null = self.ctx.none(&ty).unwrap();
-            null._eq(&v1).not()
+			let null = self.ctx.none(&ty).unwrap();
+            let is_nil = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &null, &v1, true));
+            is_nil.not()
         };
 
         // let eq_val = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
@@ -820,8 +860,9 @@ impl<'c> Z3Env<'c> {
         let ty   = a.ty();
         let val  = self.eval_attr(&tup, a);
         let not_null = {
-            let null = self.ctx.none(&ty).unwrap();
-            null._eq(&val).not()
+			let null = self.ctx.none(&ty).unwrap();
+			let is_nil = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &null, &val, true));
+			is_nil.not()
         };
 
         let implication = mem(&t).implies(&not_null);
@@ -911,7 +952,7 @@ impl<'c> Z3Env<'c> {
         let ty      = a.ty();
         let val_t   = self.eval_attr(&tup, a);
         let val_c   = self.eval(c);
-        let eq_val  = self.ctx.bool_is_true(&self.equal(ty, &val_t, &val_c));
+        let eq_val  = self.ctx.bool_is_true(&self.equal_with_hint(ty, &val_t, &val_c, true));
 
         let implication = mem(&t).implies(&eq_val);
 
@@ -1245,7 +1286,10 @@ impl<'c> shared::Eval<&rel::Expr, Dynamic<'c>> for &Z3Env<'c> {
                 self.ctx.app(&Z3Env::uf_name_of_expr(op), &arefs, ty, true)
             }
 
-			Col { .. } => unreachable!("Col should be lowered via eval_attr()")
+			Col { column: VL(idx), ty } => {
+				let sym = format!("col{}", idx);
+				self.rel_app(&sym, &[], ty, true)
+			}
 		}
 	}
 }
@@ -1466,7 +1510,10 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
                     Bool::and(z3_ctx, &[&l2r, &r2l])
                 }
 				AttrsEq { a1, a2 } => {
-					self.equal_expr(a1, a2)
+					let d1 = self.eval(a1);
+					let d2 = self.eval(a2);
+					let eq = self.equal_with_hint(a1.ty(), &d1, &d2, true);
+					self.ctx.bool_is_true(&eq)
 				},
 				PredEq { p1, p2 } => {
 					self.equal_expr(p1, p2)
