@@ -571,7 +571,7 @@ impl<'c> Z3Env<'c> {
             e2
         );
 
-        let nullable_eq = self.equal(e1.ty(), &d1, &d2);
+        let nullable_eq = self.equal_with_hint(e1.ty(), &d1, &d2, true); // apply hint
         self.ctx.bool_is_true(&nullable_eq)
     }
 
@@ -787,7 +787,7 @@ impl<'c> Z3Env<'c> {
         let ty    = a.ty();
         let vt    = self.eval_attr(&tup_t, a);
         let vu    = self.eval_attr(&tup_u, a);
-        let eq_a  = self.ctx.bool_is_true(&self.equal(ty, &vt, &vu));
+        let eq_a  = self.ctx.bool_is_true(&self.equal_with_hint(ty, &vt, &vu, true)); // apply hint
 
         let antecedent = Bool::and(z3_ctx, &[&mem(&t), &mem(&u), &eq_a]);
         let implication = antecedent.implies(&t._eq(&u));
@@ -871,7 +871,7 @@ impl<'c> Z3Env<'c> {
             let ty  = e.ty();
             let vt  = self.eval_attr(&tup_t, e);
             let vu  = self.eval_attr(&tup_u, e);
-            self.ctx.bool_is_true(&self.equal(ty, &vt, &vu))
+            self.ctx.bool_is_true(&self.equal_with_hint(ty, &vt, &vu, true)) // apply hint
         }).collect();
 
         let antecedent = Bool::and(
