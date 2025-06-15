@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Write};
 use std::ops::{Range, Add, Deref};
 use std::rc::Rc;
+use std::iter::{self, FromIterator};
 
 use anyhow::bail;
 use imbl::{vector, HashSet, Vector};
@@ -286,24 +287,43 @@ impl Logic {
 #[derive(Clone)]
 pub struct Env {
 	types: Vector<DataType>,
+	nulls: Vector<bool>,
 	catalog: Rc<Vec<Schema>>,
 }
 
 impl Env {
 	pub fn new(types: Vector<DataType>, catalog: Rc<Vec<Schema>>) -> Self {
-		Self { types, catalog }
+		let nulls: Vector<bool> = iter::repeat(true).take(types.len()).collect();
+		Self { types, nulls, catalog }
 	}
 
+	pub fn new_with_nulls(
+		types: Vector<DataType>,
+		nulls: Vector<bool>,
+		catalog: Rc<Vec<Schema>>,
+	) -> Self {
+		assert_eq!(types.len(), nulls.len(), "types / nullability mismatch");
+		Self { types, nulls, catalog }
+	}
+
+	pub fn nulls(&self) -> &Vector<bool> { &self.nulls }
+
     pub fn extend(&self, scope: &Vector<DataType>) -> Self {
-        Self { types: self.types.clone() + scope.clone(), catalog: self.catalog.clone() }
+		let more_nulls: Vector<bool> = iter::repeat(true).take(scope.len()).collect();
+        Self { 
+			types: self.types.clone() + scope.clone(), 
+			nulls: self.nulls.clone() + more_nulls,
+			catalog: self.catalog.clone() 
+		}
     }
 
 	pub fn from_types(types: Vector<DataType>) -> Self {
-        Self { types, catalog: Rc::new(Vec::new()) }
+        // Self { types, catalog: Rc::new(Vec::new()) }
+		Self::new(types, Rc::new(Vec::new()))
     }
 }
 
-impl Deref for Env {
+/* impl Deref for Env {
     type Target = Vector<DataType>;
     fn deref(&self) -> &Self::Target { &self.types }
 }
@@ -313,6 +333,16 @@ impl Add<&Vector<DataType>> for &Env {
     fn add(self, rhs: &Vector<DataType>) -> Env {
         Env { types: self.types.clone() + rhs.clone(), catalog: self.catalog.clone() }
     }
+} */
+impl Deref for Env {
+	type Target = Vector<DataType>;
+	fn deref(&self) -> &Self::Target { &self.types }
+}
+
+impl Add<&Vector<DataType>> for &Env {
+	type Output = Env;
+	#[inline]
+	fn add(self, rhs: &Vector<DataType>) -> Env { self.extend(rhs) }
 }
 
 impl Eval<partial::Aggr, Expr> for &Env {
@@ -867,8 +897,24 @@ impl<'c> Z3Env<'c> {
     } 
 
 	pub fn extend(&self, scope: &Vector<DataType>) -> Self {
-		let vars = scope.into_iter().map(|ty| self.ctx.var(ty, "v")).collect();
-		Z3Env { subst: self.subst.clone() + vars, catalog: self.catalog.clone(), phi: self.phi.clone(), ..self.clone() }
+		// let vars = scope.into_iter().map(|ty| self.ctx.var(ty, "v")).collect();
+		// Z3Env { subst: self.subst.clone() + vars, catalog: self.catalog.clone(), phi: self.phi.clone(), ..self.clone() }
+
+		let mut subst = self.subst.clone();
+		for ty in scope {
+			subst.push_back(self.ctx.var(ty, "v"));
+		}
+
+		Z3Env {
+			ctx: self.ctx.clone(),
+			tuple_sort: self.tuple_sort.clone(),
+			subst,
+			phi: self.phi.clone(),
+			h_ops: self.h_ops.clone(),
+			aggs: self.aggs.clone(),
+			rel_h_ops: self.rel_h_ops.clone(),
+			catalog: self.catalog.clone(),
+		}
 	}
 
 	pub fn extend_vals(&self, vals: &Vector<Dynamic<'c>>) -> Self {
@@ -887,8 +933,14 @@ impl<'c> Z3Env<'c> {
 	}
 
 	fn equal(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>) -> Dynamic<'c> {
+		let nonnull_hint = {
+			let strict = self.ctx.strict_sort(&ty);
+			a1.get_sort() == strict || a2.get_sort() == strict
+		};
+
 		use shared::DataType::*;
 		let ctx = &self.ctx;
+		let strict_sort = ctx.strict_sort(&ty);
 
 		// Helper: lift a strict value into an `Option<…>::Some(_)`
 		// so that both operands share the *nullable* sort.
@@ -912,6 +964,10 @@ impl<'c> Z3Env<'c> {
 			}
 		};
 
+		if nonnull_hint {
+			return self.equal_nonnull(&ty, a1, a2);
+		}
+
 		let v1 = lift(a1);
 		let v2 = lift(a2);
 
@@ -933,6 +989,15 @@ impl<'c> Z3Env<'c> {
 	}
 
 	fn cmp(&self, ty: DataType, cmp: &str, a1: &Dynamic<'c>, a2: &Dynamic<'c>) -> Dynamic<'c> {
+		let nonnull_hint = {
+			let strict = self.ctx.strict_sort(&ty);
+			a1.get_sort() == strict || a2.get_sort() == strict
+		};
+
+		if nonnull_hint {
+			return self.cmp_nonnull(ty.clone(), cmp, a1, a2);
+		}
+
 		let ctx = &self.ctx;
 		use shared::DataType::*;
 		assert!(matches!(ty, Integer | Real | String));

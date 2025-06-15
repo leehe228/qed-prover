@@ -23,6 +23,11 @@ pub struct UnifyEnv<'c>(pub Rc<Ctx<'c>>, pub Vector<Dynamic<'c>>, pub Vector<Dyn
 impl<'c> UnifyEnv<'c> {
 	#[inline]
 	fn phi(&self) -> &Bool<'c> { &self.3 }
+
+	#[inline(always)]
+    fn assert_phi(&self) {
+        self.0.solver.assert(&self.3);
+    }
 }
 
 impl UnifyEnv<'_> {
@@ -72,7 +77,11 @@ impl<'c> Unify<UExpr> for UnifyEnv<'c> {
 impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 	fn unify(&self, es1: &Vec<Expr>, es2: &Vec<Expr>) -> bool {
 		let UnifyEnv(ctx, _, _, _) = self;
-		es1.len() == es2.len() && {
+
+		ctx.solver.push();
+		self.assert_phi();
+
+		let ok = es1.len() == es2.len() && {
 			let (ref env1, ref env2) = self.envs();
 			let expr_eqs =
 				es1.iter().zip(es2).map(|(e1, e2)| env1.eval(e1)._eq(&env2.eval(e2))).collect_vec();
@@ -90,7 +99,10 @@ impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 			let (res, timed_out) = smt(&ctx.solver, antecedent.implies(&eq));
 			ctx.update_smt_duration(unify_start.elapsed(), timed_out);
 			res
-		}
+		};
+
+		ctx.solver.pop(1);
+		ok
 	}
 }
 
@@ -252,6 +264,9 @@ impl Unify<Inner> for UnifyEnv<'_> {
 			._eq(&logic2.ite(&apps2, &Int::from_i64(z3_ctx, 0)));
 		let solver = &ctx.solver;
 		solver.push();
+
+		self.assert_phi();
+
 		solver.assert(&Bool::or(z3_ctx, &[&logic1, &logic2]));
 		let h_ops_equiv = env1.extract_equiv();
 		// let phi = self.phi();
