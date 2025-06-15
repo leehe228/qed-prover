@@ -238,8 +238,8 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 	if rel1 == rel2 {
 		return (true, ctx.stats.borrow().clone());
 	}
-	let phi = (&z3_env).eval(&constraints);
-	let env = UnifyEnv(ctx.clone(), vector![], vector![], phi);
+	// let phi = (&z3_env).eval(&constraints); // already done above (duplicated)
+	let env = UnifyEnv(ctx.clone(), vector![], vector![], phi.clone());
 	let unify_start = Instant::now();
 	log::debug!("Unification started");
 	let res = env.unify(&rel1, &rel2);
