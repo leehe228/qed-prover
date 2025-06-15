@@ -911,7 +911,7 @@ impl<'c> Z3Env<'c> {
         let ty      = a.ty();
         let val_t   = self.eval_attr(&tup, a);
         let val_c   = self.eval(c);
-        let eq_val  = self.ctx.bool_is_true(&self.equal(ty, &val_t, &val_c));
+        let eq_val  = self.ctx.bool_is_true(&self.equal_with_hint(ty, &val_t, &val_c, true));
 
         let implication = mem(&t).implies(&eq_val);
 
@@ -1245,7 +1245,10 @@ impl<'c> shared::Eval<&rel::Expr, Dynamic<'c>> for &Z3Env<'c> {
                 self.ctx.app(&Z3Env::uf_name_of_expr(op), &arefs, ty, true)
             }
 
-			Col { .. } => unreachable!("Col should be lowered via eval_attr()")
+			Col { column: VL(idx), ty } => {
+				let sym = format!("col{}", idx);
+				self.rel_app(&sym, &[], ty, true)
+			}
 		}
 	}
 }
@@ -1466,7 +1469,10 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
                     Bool::and(z3_ctx, &[&l2r, &r2l])
                 }
 				AttrsEq { a1, a2 } => {
-					self.equal_expr(a1, a2)
+					let d1 = self.eval(a1);
+					let d2 = self.eval(a2);
+					let eq = self.equal_with_hint(a1.ty(), &d1, &d2, true);
+					self.ctx.bool_is_true(&eq)
 				},
 				PredEq { p1, p2 } => {
 					self.equal_expr(p1, p2)
