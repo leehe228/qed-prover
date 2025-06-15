@@ -113,6 +113,13 @@ impl Relation {
 	pub fn schema(&self, catalog: &[Schema]) -> Vec<DataType> {
         self.scope(catalog).into_iter().collect::<Vec<_>>()
     }
+
+	pub fn name(&self) -> String {
+		match self {
+			Relation::Scan(VL(tid)) => format!("r{}", tid),
+			_ => format!("anon_{:x}", self as *const _ as usize),
+		}
+	}
 }
 
 impl Eval<Relation, syntax::Relation> for Env<'_> {

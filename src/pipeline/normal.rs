@@ -714,27 +714,28 @@ impl<'c> Z3Env<'c> {
         forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
-	pub fn encode_unique(&self, _r: &rel::Relation, a: &rel::Expr) -> Bool<'c> {
+	pub fn encode_unique(&self, r: &rel::Relation, a: &rel::Expr) -> Bool<'c> {
 		use z3::ast::forall_const;
 
         let z3_ctx  = self.ctx.z3_ctx();
         let tuple_s = &self.tuple_sort;
 
+		let rel_name = Self::u_name_of_relation(&r.name());
         let t  = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
         let u  = Dynamic::fresh_const(z3_ctx, "u", &tuple_s);
 
         let mem = |tup: &Dynamic<'c>| {
             let f = z3::FuncDecl::new(
                 z3_ctx,
-                z3::Symbol::String("r!p".to_string()),
+                format!("{}p", rel_name),
                 &[&tuple_s],
                 &z3::Sort::bool(z3_ctx),
             );
             f.apply(&[tup]).as_bool().unwrap()
         };
 
-        let tup_t = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
-        let tup_u = TupCtx { rel_name: "r".into(), cols: vector![u.clone()] };
+        let tup_t = TupCtx { rel_name: rel_name.clone(), cols: vector![t.clone()] };
+        let tup_u = TupCtx { rel_name: rel_name.clone(), cols: vector![u.clone()] };
 
         let ty    = a.ty();
         let vt    = self.eval_attr(&tup_t, a);
@@ -748,25 +749,26 @@ impl<'c> Z3Env<'c> {
         forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
-	pub fn encode_notnull(&self, _r: &rel::Relation, a: &rel::Expr) -> Bool<'c> {
+	pub fn encode_notnull(&self, r: &rel::Relation, a: &rel::Expr) -> Bool<'c> {
 		use z3::ast::forall_const;
 
         let z3_ctx  = self.ctx.z3_ctx();
         let tuple_s = &self.tuple_sort;
 
-        let t = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
+        let rel_name = Self::u_name_of_relation(&r.name());
 
         let mem = |tup: &Dynamic<'c>| {
             let f = z3::FuncDecl::new(
                 z3_ctx,
-                z3::Symbol::String("r!p".to_string()),
+                format!("{}p", rel_name),
                 &[&tuple_s],
                 &z3::Sort::bool(z3_ctx),
             );
             f.apply(&[tup]).as_bool().unwrap()
         };
 
-        let tup = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
+		let t = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
+        let tup = TupCtx { rel_name: rel_name.clone(), cols: vector![t.clone()] };
 
         let ty   = a.ty();
         let val  = self.eval_attr(&tup, a);
@@ -782,7 +784,7 @@ impl<'c> Z3Env<'c> {
 
 	pub fn encode_fd(
 		&self,
-		_r: &rel::Relation,
+		r: &rel::Relation,
 		x: &Vec<rel::Expr>,
 		y: &Vec<rel::Expr>,
 	) -> Bool<'c> {
@@ -794,21 +796,22 @@ impl<'c> Z3Env<'c> {
         let z3_ctx  = self.ctx.z3_ctx();
         let tuple_s = &self.tuple_sort;
 
+		let rel_name = Self::u_name_of_relation(&r.name());
         let t  = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
         let u  = Dynamic::fresh_const(z3_ctx, "u", &tuple_s);
 
         let mem = |tup: &Dynamic<'c>| {
             let f = z3::FuncDecl::new(
                 z3_ctx,
-                z3::Symbol::String("r!p".to_string()),
+                format!("{}p", rel_name),
                 &[&tuple_s],
                 &z3::Sort::bool(z3_ctx),
             );
             f.apply(&[tup]).as_bool().unwrap()
         };
 
-        let tup_t = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
-        let tup_u = TupCtx { rel_name: "r".into(), cols: vector![u.clone()] };
+        let tup_t = TupCtx { rel_name: rel_name.clone(), cols: vector![t.clone()] };
+        let tup_u = TupCtx { rel_name: rel_name.clone(), cols: vector![u.clone()] };
 
         let eq_xs : Vec<Bool<'c>> = x.iter().map(|e| {
             let ty  = e.ty();
@@ -837,25 +840,26 @@ impl<'c> Z3Env<'c> {
         forall_const(z3_ctx, &bnds, &[], &implication)
 	}
 
-	pub fn encode_const(&self, _r: &rel::Relation, a: &rel::Expr, c: &rel::Expr) -> Bool<'c> {
+	pub fn encode_const(&self, r: &rel::Relation, a: &rel::Expr, c: &rel::Expr) -> Bool<'c> {
 		use z3::ast::forall_const;
 
         let z3_ctx  = self.ctx.z3_ctx();
         let tuple_s = &self.tuple_sort;
 
+		let rel_name = Self::u_name_of_relation(&r.name());
         let t = Dynamic::fresh_const(z3_ctx, "t", &tuple_s);
 
         let mem = |tup: &Dynamic<'c>| {
             let f = z3::FuncDecl::new(
                 z3_ctx,
-                z3::Symbol::String("r!p".to_string()),
+                format!("{}p", rel_name),
                 &[&tuple_s],
                 &z3::Sort::bool(z3_ctx),
             );
             f.apply(&[tup]).as_bool().unwrap()
         };
 
-        let tup = TupCtx { rel_name: "r".into(), cols: vector![t.clone()] };
+        let tup = TupCtx { rel_name: rel_name.clone(), cols: vector![t.clone()] };
 
         let ty      = a.ty();
         let val_t   = self.eval_attr(&tup, a);
