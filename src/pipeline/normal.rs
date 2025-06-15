@@ -983,31 +983,22 @@ impl<'c> Z3Env<'c> {
 		exists_const(z3_ctx, &bounds, &[], body)
 	}
 
-	fn equal(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>) -> Dynamic<'c> {
-		let nonnull_hint = {
-			let strict = self.ctx.strict_sort(&ty);
-			a1.get_sort() == strict || a2.get_sort() == strict
-		};
+	fn equal_inner(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>, nonnull_hint: bool) -> Dynamic<'c> {
+		if nonnull_hint {
+			return self.equal_nonnull(&ty, a1, a2);
+		}
 
 		use shared::DataType::*;
 		let ctx = &self.ctx;
 		let strict_sort = ctx.strict_sort(&ty);
 
-		// Helper: lift a strict value into an `Option<…>::Some(_)`
-		// so that both operands share the *nullable* sort.
-		let strict_sort = ctx.strict_sort(&ty);
 		let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
 			if v.get_sort() == strict_sort {
 				match ty {
-					Integer => {
-						// `as_int()` gives the underlying `z3::ast::Int`
-						ctx.int_some(v.as_int().expect("Expected Int"))
-					}
-					Real => ctx.real_some(v.as_real().expect("Expected Real")),
-					Boolean => ctx.bool_some(v.as_bool().expect("Expected Bool")),
-					String => ctx.string_some(v.as_string().expect("Expected String")),
-					// For custom / uninterpreted sorts we keep the value as‑is;
-					// equality will fall back to `generic_eq`.
+					Integer => ctx.int_some(v.as_int().unwrap()),
+					Real => ctx.real_some(v.as_real().unwrap()),
+					Boolean => ctx.bool_some(v.as_bool().unwrap()),
+					String => ctx.string_some(v.as_string().unwrap()),
 					Custom(_) => v.clone(),
 				}
 			} else {
@@ -1015,20 +1006,8 @@ impl<'c> Z3Env<'c> {
 			}
 		};
 
-		if nonnull_hint {
-			return self.equal_nonnull(&ty, a1, a2);
-		}
-
 		let v1 = lift(a1);
 		let v2 = lift(a2);
-
-		// At this point both operands must have the same (nullable) sort.
-		debug_assert!(
-			v1.get_sort() == v2.get_sort(),
-			"equal(): sort mismatch after lifting: {:?} vs {:?}",
-			v1.get_sort(),
-			v2.get_sort()
-		);
 
 		match ty {
 			Integer => ctx.int__eq(&v1, &v2),
@@ -1039,12 +1018,7 @@ impl<'c> Z3Env<'c> {
 		}
 	}
 
-	fn cmp(&self, ty: DataType, cmp: &str, a1: &Dynamic<'c>, a2: &Dynamic<'c>) -> Dynamic<'c> {
-		let nonnull_hint = {
-			let strict = self.ctx.strict_sort(&ty);
-			a1.get_sort() == strict || a2.get_sort() == strict
-		};
-
+	fn cmp_inner(&self, ty: DataType, cmp: &str, a1: &Dynamic<'c>, a2: &Dynamic<'c>, nonnull_hint: bool) -> Dynamic<'c> {
 		if nonnull_hint {
 			return self.cmp_nonnull(ty.clone(), cmp, a1, a2);
 		}
@@ -1077,31 +1051,28 @@ impl<'c> Z3Env<'c> {
 		}
 	}
 
-	pub fn equal_with_hint(
-		&self,
-		ty: DataType,
-		a1: &Dynamic<'c>,
-		a2: &Dynamic<'c>,
-		nonnull_hint: bool,
-	) -> Dynamic<'c> {
-		if nonnull_hint {
-			return self.equal_nonnull(&ty, a1, a2);
-		}
-		self.equal(ty, a1, a2)
+	fn equal(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>) -> Dynamic<'c> {
+		let auto_hint = {
+			let strict = self.ctx.strict_sort(&ty);
+			a1.get_sort() == strict || a2.get_sort() == strict
+		};
+		self.equal_inner(ty, a1, a2, auto_hint)
 	}
 
-	pub fn cmp_with_hint(
-		&self,
-		ty: DataType,
-		cmp: &str,
-		a1: &Dynamic<'c>,
-		a2: &Dynamic<'c>,
-		nonnull_hint: bool,
-	) -> Dynamic<'c> {
-		if nonnull_hint {
-			return self.cmp_nonnull(ty.clone(), cmp, a1, a2);
-		}
-		self.cmp(ty, cmp, a1, a2)
+	pub fn equal_with_hint(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>, nonnull_hint: bool) -> Dynamic<'c> {
+		self.equal_inner(ty, a1, a2, nonnull_hint)
+	}
+
+	fn cmp(&self, ty: DataType, cmp: &str, a1: &Dynamic<'c>, a2: &Dynamic<'c>) -> Dynamic<'c> {
+		let auto_hint = {
+			let strict = self.ctx.strict_sort(&ty);
+			a1.get_sort() == strict || a2.get_sort() == strict
+		};
+		self.cmp_inner(ty, cmp, a1, a2, auto_hint)
+	}
+
+	pub fn cmp_with_hint(&self, ty: DataType, cmp: &str, a1: &Dynamic<'c>, a2: &Dynamic<'c>, nonnull_hint: bool) -> Dynamic<'c> {
+		self.cmp_inner(ty, cmp, a1, a2, nonnull_hint)
 	}
 
 	#[inline]
