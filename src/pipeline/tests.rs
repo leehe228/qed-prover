@@ -48,12 +48,12 @@ fn empty_schema(types: Vec<DataType>, nulls: Vec<bool>) -> Schema {
 #[test]
 fn not_null_example_json_is_provable() {
     // T7.1  – 실제 JSON 파일(example1_const.json)이 이미 repo 내에 존재
-    let json = include_json!("example1_const.json");
+    let json = include_json!("examples/7_notnull_c.json");
     let input: super::Input =
-        serde_json::from_str(json).expect("example1_const.json must parse");
+        serde_json::from_str(json).expect("examples/7_notnull_c.json must parse");
 
     let (provable, _stats) = super::unify(input);
-    assert!(provable, "example1_const.json should be provable");
+    assert!(provable, "examples/7_notnull_c.json should be provable");
 }
 
 #[test]
