@@ -51,8 +51,15 @@ fn main() -> io::Result<()> {
 			let mut buf_reader = BufReader::new(file);
 			let mut contents = String::new();
 			println!("#{}: {}", i, path.to_string_lossy().as_ref());
+			log::debug!("───────────────────────────────────────────────");
+			log::debug!("#{}: {}", i, path.display());
 			let start_time = Instant::now();
-			buf_reader.read_to_string(&mut contents).unwrap();
+			// buf_reader.read_to_string(&mut contents).unwrap();
+			if let Err(e) = buf_reader.read_to_string(&mut contents) {
+				log::error!("I/O error while reading {} - {}", path.display(), e);
+				return;
+			}
+			log::debug!("{} bytes read from {}", contents.len(), path.display());
 			let result =
 				std::panic::catch_unwind(|| match serde_json::from_str::<Input>(&contents) {
 					Ok(rel) => {
@@ -80,7 +87,17 @@ fn main() -> io::Result<()> {
 					Panic(e)
 				},
 			};
-			let result_file = File::create(path.with_extension("result")).unwrap();
+			// let result_file = File::create(path.with_extension("result")).unwrap();
+			let result_path = path.with_extension("result");
+			log::debug!("Writing Stats to {}", result_path.display());
+			let result_file = match File::create(&result_path) {
+				Ok(f) => f,
+				Err(e) => {
+					log::error!("Cannot create {} - {}", result_path.display(), e);
+					return;
+				}
+			};
+
 			let case_stats = match &result {
 				Provable(stats) | NotProvable(stats) => {
 					let mut stats = stats.clone();

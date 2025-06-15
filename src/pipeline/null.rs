@@ -235,7 +235,7 @@ impl<'c> Ctx<'c> {
 		)
 	}
 
-	pub fn bool_and_v(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
+	/* pub fn bool_and_v(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
 		args.iter()
 			.fold(self.bool_some(Bool::from_bool(self.solver.get_context(), true)), |a, b| {
 				self.bool_and(&a, b)
@@ -247,7 +247,56 @@ impl<'c> Ctx<'c> {
 			.fold(self.bool_some(Bool::from_bool(self.solver.get_context(), false)), |a, b| {
 				self.bool_or(&a, b)
 			})
-	}
+	} */
+
+    pub fn bool_and_v(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
+        let ctx = self.solver.get_context();
+        if args.is_empty() {
+            return self.bool_some(Bool::from_bool(ctx, true));
+        }
+
+        let is_null  = |e: &Dynamic<'c>| self.sorts.bool.variants[0].tester.apply(&[e]).as_bool().unwrap();
+        let is_true  = |e: &Dynamic<'c>| self.sorts.bool.variants[1].accessors[0].apply(&[e]).as_bool().unwrap();
+
+        let mut any_false = Bool::from_bool(ctx, false);
+        let mut any_null  = Bool::from_bool(ctx, false);
+
+        for &e in args {
+            any_null  = Bool::or(ctx, &[&any_null , &is_null(e)]);
+			let defined_and_false = Bool::and(ctx, &[&is_null(e).not(), &is_true(e).not()]);
+            any_false = Bool::or(ctx, &[&any_false, &defined_and_false]);
+        }
+
+        any_false.ite(
+            &self.bool_some(Bool::from_bool(ctx, false)),
+            &any_null.ite(&self.bool_none(),
+                          &self.bool_some(Bool::from_bool(ctx, true))),
+        )
+    }
+
+    pub fn bool_or_v(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
+        let ctx = self.solver.get_context();
+        if args.is_empty() {
+            return self.bool_some(Bool::from_bool(ctx, false));
+        }
+
+        let is_null  = |e: &Dynamic<'c>| self.sorts.bool.variants[0].tester.apply(&[e]).as_bool().unwrap();
+        let is_true  = |e: &Dynamic<'c>| self.sorts.bool.variants[1].accessors[0].apply(&[e]).as_bool().unwrap();
+
+        let mut any_true  = Bool::from_bool(ctx, false);
+        let mut any_null  = Bool::from_bool(ctx, false);
+
+        for &e in args {
+            any_null = Bool::or(ctx, &[&any_null, &is_null(e)]);
+            any_true = Bool::or(ctx, &[&any_true, &is_true(e)]);
+        }
+
+        any_true.ite(
+            &self.bool_some(Bool::from_bool(ctx, true)),
+            &any_null.ite(&self.bool_none(),
+                          &self.bool_some(Bool::from_bool(ctx, false))),
+        )
+    }
 
 	pub fn bool_and(&self, e1: &Dynamic<'c>, e2: &Dynamic<'c>) -> Dynamic<'c> {
 		let ctx = self.solver.get_context();
@@ -298,6 +347,18 @@ impl<'c> Ctx<'c> {
 			),
 		)
 	}
+
+	pub fn bool_and_v_nonnull(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
+        let tri = self.bool_and_v(args);
+        let strict = self.bool_is_true(&tri);
+        self.bool_some(strict)
+    }
+
+    pub fn bool_or_v_nonnull(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
+        let tri = self.bool_or_v(args);
+        let strict = self.bool_is_true(&tri);
+        self.bool_some(strict)
+    }
 
 	pub fn generic_none(&self, ty: impl ToString) -> Dynamic<'c> {
 		Dynamic::new_const(

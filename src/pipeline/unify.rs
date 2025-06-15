@@ -23,12 +23,17 @@ pub struct UnifyEnv<'c>(pub Rc<Ctx<'c>>, pub Vector<Dynamic<'c>>, pub Vector<Dyn
 impl<'c> UnifyEnv<'c> {
 	#[inline]
 	fn phi(&self) -> &Bool<'c> { &self.3 }
+
+	#[inline(always)]
+    fn assert_phi(&self) {
+        self.0.solver.assert(&self.3);
+    }
 }
 
 impl UnifyEnv<'_> {
 	fn envs(&self) -> (Z3Env, Z3Env) {
 		let UnifyEnv(ctx, subst1, subst2, _) = self;
-		let z3_env = Z3Env::empty(ctx.clone());
+		let z3_env = Z3Env::empty(ctx.clone(), Rc::new(Vec::new()));
 		let env1 = z3_env.extend_vals(subst1);
 		let env2 = z3_env.extend_vals(subst2);
 		(env1, env2)
@@ -72,7 +77,11 @@ impl<'c> Unify<UExpr> for UnifyEnv<'c> {
 impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 	fn unify(&self, es1: &Vec<Expr>, es2: &Vec<Expr>) -> bool {
 		let UnifyEnv(ctx, _, _, _) = self;
-		es1.len() == es2.len() && {
+
+		ctx.solver.push();
+		self.assert_phi();
+
+		let ok = es1.len() == es2.len() && {
 			let (ref env1, ref env2) = self.envs();
 			let expr_eqs =
 				es1.iter().zip(es2).map(|(e1, e2)| env1.eval(e1)._eq(&env2.eval(e2))).collect_vec();
@@ -90,7 +99,10 @@ impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 			let (res, timed_out) = smt(&ctx.solver, antecedent.implies(&eq));
 			ctx.update_smt_duration(unify_start.elapsed(), timed_out);
 			res
-		}
+		};
+
+		ctx.solver.pop(1);
+		ok
 	}
 }
 
@@ -191,7 +203,7 @@ where
 }
 
 impl<'c> Unify<Term> for UnifyEnv<'c> {
-	fn unify(&self, Sigma(s1, t1): &Term, Sigma(s2, t2): &Term) -> bool {
+	/* fn unify(&self, Sigma(s1, t1): &Term, Sigma(s2, t2): &Term) -> bool {
 		if !perm_equiv(s1, s2) {
 			return false;
 		}
@@ -207,7 +219,37 @@ impl<'c> Unify<Term> for UnifyEnv<'c> {
 				UnifyEnv(ctx.clone(), subst1.clone(), subst2 + &vars2.into(), phi.clone()).unify(t1, t2)
 			},
 		)
-	}
+	} */
+	fn unify(&self, Sigma(s1, t1): &Term, Sigma(s2, t2): &Term) -> bool {
+        if !perm_equiv(s1, s2) {
+            return false;
+        }
+        log::info!("Unifying\n{}\n{}", t1, t2);
+
+        let UnifyEnv(ctx, subst1, subst2, phi) = self;
+        let vars1 = s1.iter().map(|ty| ctx.var(ty, "v")).collect();
+        let subst1 = subst1 + &vars1;
+
+        perms(
+            s1.iter().cloned().collect(),
+            vars1.into_iter().collect(),
+        )
+        .enumerate()
+        .any(|(i, vars2)| {
+            ctx.stats.borrow_mut().nontrivial_perms |= i > 0;
+
+            assert_eq!(vars2.len(), s2.len());
+
+            log::info!("Permutation: {:?}", vars2);
+            let env = UnifyEnv(
+                ctx.clone(),
+                subst1.clone(),
+                subst2 + &vars2.into(),
+                phi.clone(),
+            );
+            env.unify(t1, t2)
+        })
+    }
 }
 
 impl Unify<Inner> for UnifyEnv<'_> {
@@ -222,6 +264,9 @@ impl Unify<Inner> for UnifyEnv<'_> {
 			._eq(&logic2.ite(&apps2, &Int::from_i64(z3_ctx, 0)));
 		let solver = &ctx.solver;
 		solver.push();
+
+		self.assert_phi();
+
 		solver.assert(&Bool::or(z3_ctx, &[&logic1, &logic2]));
 		let h_ops_equiv = env1.extract_equiv();
 		// let phi = self.phi();

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use z3::{Config, Context, Solver};
 
 use crate::pipeline::normal::Z3Env;
+use crate::pipeline::normal::Env as NormEnv;
 use crate::pipeline::shared::{Ctx, Eval, Schema};
 use crate::pipeline::unify::{Unify, UnifyEnv};
 
@@ -60,51 +61,72 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 		return (true, stats);
 	}
 	let syn_start = Instant::now();
+	log::debug!("Syntax translation started");
 	let rel1 = env.eval(rel1);
 	let rel2 = env.eval(rel2);
 	stats.translate_duration = syn_start.elapsed();
 	log::info!("Syntax left:\n{}", rel1);
 	log::info!("Syntax right:\n{}", rel2);
+
+	log::debug!("Syntax translation finished - {:.4?}", stats.translate_duration);
+	log::trace!("Syntax <- {}\nSyntax -> {}", rel1, rel2);
+
 	if rel1 == rel2 {
+		log::debug!("Early exit: equivalent after syntax translation");
 		return (true, stats);
 	}
-	let nom_env = &vector![];
+	let catalog_rc = Rc::new(schemas.clone());
+	// let nom_env = &vector![];
+	let nom_env = NormEnv::new(vector![], catalog_rc.clone());
 	let eval_nom = |rel: syntax::Relation| -> normal::Relation {
 		let rel = (&partial::Env::default()).eval(rel);
-		nom_env.eval(rel)
+		// nom_env.eval(rel)
+		(&nom_env).eval(rel)
 	};
 	let norm_start = Instant::now();
+	log::debug!("Normal translation started");
 	let rel1 = eval_nom(rel1);
 	let rel2 = eval_nom(rel2);
 	stats.normal_duration = norm_start.elapsed();
 	log::info!("Normal left:\n{}", rel1);
 	log::info!("Normal right:\n{}", rel2);
+	log::debug!("Normalization finished - {:.4?}", stats.normal_duration);
+	log::trace!("Normal <- {}\nNormal -> {}", rel1, rel2);
 	if rel1 == rel2 {
 		return (true, stats);
 	}
 	let config = Config::new();
 	let z3_ctx = &Context::new(&config);
 	let ctx = Rc::new(Ctx::new_with_stats(Solver::new(z3_ctx), stats));
-	let z3_env = Z3Env::empty(ctx.clone());
+	let mut z3_env = Z3Env::empty(ctx.clone(), catalog_rc.clone());
+	let phi = (&z3_env).eval(&constraints);
+	z3_env.set_phi(phi.clone()); // Set the constraints in the Z3 environment
 	let eval_stb = |nom: normal::Relation| -> normal::Relation {
 		let env = &stable::Env(vector![], z3_env.clone());
 		let stb = env.eval(nom);
-		nom_env.eval(stb)
+		// nom_env.eval(stb)
+		(&nom_env).eval(stb)
 	};
 	let stb_start = Instant::now();
+	log::debug!("Stable translation started");
 	let rel1 = eval_stb(rel1);
 	let rel2 = eval_stb(rel2);
 	ctx.stats.borrow_mut().stable_duration = stb_start.elapsed();
 	log::info!("Stable left:\n{}", rel1);
 	log::info!("Stable right:\n{}", rel2);
+	log::debug!("Stable translation finished - {:.4?}", ctx.stats.borrow().stable_duration);
+	log::trace!("Stable <- {}\nStable -> {}", rel1, rel2);
 	if rel1 == rel2 {
 		return (true, ctx.stats.borrow().clone());
 	}
 	let phi = (&z3_env).eval(&constraints);
 	let env = UnifyEnv(ctx.clone(), vector![], vector![], phi);
 	let unify_start = Instant::now();
+	log::debug!("Unification started");
 	let res = env.unify(&rel1, &rel2);
 	ctx.stats.borrow_mut().unify_duration = unify_start.elapsed();
 	let stats = ctx.stats.borrow().clone();
+	log::debug!("Unification finished - {:.4?}", ctx.stats.borrow().unify_duration);
+	log::trace!("Unify <- {}\nUnify -> {}", rel1, rel2);
 	(res, stats)
 }

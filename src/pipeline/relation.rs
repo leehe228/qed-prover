@@ -109,6 +109,10 @@ impl Relation {
 			_ => false
 		}
 	}
+
+	pub fn schema(&self, catalog: &[Schema]) -> Vec<DataType> {
+        self.scope(catalog).into_iter().collect::<Vec<_>>()
+    }
 }
 
 impl Eval<Relation, syntax::Relation> for Env<'_> {
@@ -531,7 +535,7 @@ pub enum Expr {
 }
 
 impl Expr {
-	fn ty(&self) -> DataType {
+	pub fn ty(&self) -> DataType {
 		match self {
 			Expr::Col { ty, .. } => ty,
 			Expr::Op { ty, .. } => ty,

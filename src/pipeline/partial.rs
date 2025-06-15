@@ -28,7 +28,12 @@ impl Relation {
 		(&env.append(args)).eval(body)
 	}
 
-	pub fn degen(&self, env: &normal::Env) -> bool {
+	/* pub fn degen(&self, env: &normal::Env) -> bool {
+		let sum = UExpr::sum(self.clone());
+		env.unify(&sum.clone(), &UExpr::logic(Logic::squash(sum)))
+	} */
+	pub fn degen(&self, types: &Vector<DataType>) -> bool {
+		let env = normal::Env::from_types(types.clone());
 		let sum = UExpr::sum(self.clone());
 		env.unify(&sum.clone(), &UExpr::logic(Logic::squash(sum)))
 	}
