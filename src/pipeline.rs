@@ -61,12 +61,18 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 		return (true, stats);
 	}
 	let syn_start = Instant::now();
+	log::debug!("Syntax translation started");
 	let rel1 = env.eval(rel1);
 	let rel2 = env.eval(rel2);
 	stats.translate_duration = syn_start.elapsed();
 	log::info!("Syntax left:\n{}", rel1);
 	log::info!("Syntax right:\n{}", rel2);
+
+	log::debug!("Syntax translation finished - {:.4?}", stats.translate_duration);
+	log::trace!("Syntax <- {}\nSyntax -> {}", rel1, rel2);
+
 	if rel1 == rel2 {
+		log::debug!("Early exit: equivalent after syntax translation");
 		return (true, stats);
 	}
 	let catalog_rc = Rc::new(schemas.clone());
@@ -78,11 +84,14 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 		(&nom_env).eval(rel)
 	};
 	let norm_start = Instant::now();
+	log::debug!("Normal translation started");
 	let rel1 = eval_nom(rel1);
 	let rel2 = eval_nom(rel2);
 	stats.normal_duration = norm_start.elapsed();
 	log::info!("Normal left:\n{}", rel1);
 	log::info!("Normal right:\n{}", rel2);
+	log::debug!("Normalization finished - {:.4?}", stats.normal_duration);
+	log::trace!("Normal <- {}\nNormal -> {}", rel1, rel2);
 	if rel1 == rel2 {
 		return (true, stats);
 	}
@@ -97,19 +106,25 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 		(&nom_env).eval(stb)
 	};
 	let stb_start = Instant::now();
+	log::debug!("Stable translation started");
 	let rel1 = eval_stb(rel1);
 	let rel2 = eval_stb(rel2);
 	ctx.stats.borrow_mut().stable_duration = stb_start.elapsed();
 	log::info!("Stable left:\n{}", rel1);
 	log::info!("Stable right:\n{}", rel2);
+	log::debug!("Stable translation finished - {:.4?}", ctx.stats.borrow().stable_duration);
+	log::trace!("Stable <- {}\nStable -> {}", rel1, rel2);
 	if rel1 == rel2 {
 		return (true, ctx.stats.borrow().clone());
 	}
 	let phi = (&z3_env).eval(&constraints);
 	let env = UnifyEnv(ctx.clone(), vector![], vector![], phi);
 	let unify_start = Instant::now();
+	log::debug!("Unification started");
 	let res = env.unify(&rel1, &rel2);
 	ctx.stats.borrow_mut().unify_duration = unify_start.elapsed();
 	let stats = ctx.stats.borrow().clone();
+	log::debug!("Unification finished - {:.4?}", ctx.stats.borrow().unify_duration);
+	log::trace!("Unify <- {}\nUnify -> {}", rel1, rel2);
 	(res, stats)
 }
