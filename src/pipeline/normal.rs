@@ -500,6 +500,26 @@ impl<'c> Z3Env<'c> {
         self.ctx.bool_is_true(&nullable_eq)
     }
 
+	pub fn equal_nonnull(
+		&self, ty: &DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>,
+	) -> Dynamic<'c> {
+		let tri = self.equal(ty.clone(), a1, a2);
+		let strict = self.ctx.bool_is_true(&tri);
+		self.ctx.bool_some(strict)
+	}
+
+	pub fn cmp_nonnull(
+        &self,
+        ty: DataType,
+        cmp: &str,
+        a1: &Dynamic<'c>,
+        a2: &Dynamic<'c>,
+    ) -> Dynamic<'c> {
+        let tri = self.cmp(ty.clone(), cmp, a1, a2);
+        let strict = self.ctx.bool_is_true(&tri);
+        self.ctx.bool_some(strict)
+    }
+
 	pub fn encode_subset(&self, t1: &TupCtx<'c>, _r1: &rel::Relation, t2: &TupCtx<'c>, _r2: &rel::Relation) -> Bool<'c> {
 		let z3_ctx = self.ctx.z3_ctx();
 

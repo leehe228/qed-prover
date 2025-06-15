@@ -348,6 +348,18 @@ impl<'c> Ctx<'c> {
 		)
 	}
 
+	pub fn bool_and_v_nonnull(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
+        let tri = self.bool_and_v(args);
+        let strict = self.bool_is_true(&tri);
+        self.bool_some(strict)
+    }
+
+    pub fn bool_or_v_nonnull(&self, args: &[&Dynamic<'c>]) -> Dynamic<'c> {
+        let tri = self.bool_or_v(args);
+        let strict = self.bool_is_true(&tri);
+        self.bool_some(strict)
+    }
+
 	pub fn generic_none(&self, ty: impl ToString) -> Dynamic<'c> {
 		Dynamic::new_const(
 			self.solver.get_context(),
