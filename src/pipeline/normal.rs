@@ -1543,42 +1543,52 @@ pub struct TupCtx<'c> {
 impl<'c> TupCtx<'c> {
 	#[inline]
 	pub fn attr(&self, z3: &Z3Env<'c>, idx: usize, ty: &DataType) -> Dynamic<'c> {
-		/* let mut nullable = true;
-
-		if let Some(body) = self.rel_name.strip_prefix('r') {
-			let num: String = body.chars().take_while(|c| c.is_ascii_digit()).collect();
-			if let Ok(tid) = num.parse::<usize>() {
-				if let Some(schema) = z3.catalog.get(tid) {
-					if let Some(&n) = schema.nullabilities.get(idx) {
-						nullable = n;
+		// ──────────────────────────────────────────────────────────────
+		// T3 ― Nullable 판정
+		//
+		// ①  rel_name = "r42" | "r42p"  →  카탈로그 인덱스 42
+		// ②  그렇지 않으면 스키마 이름(DDL 상 table 이름)으로 탐색
+		// ③  찾은 스키마의 nullabilities[idx] 가 true/false 를 그대로 사용
+		//     (T1 패스 이후 이 벡터는 제약을 모두 반영한 최종 결과)
+		// ④  매칭 실패 시 보수적으로 `true` 로 간주
+		// ──────────────────────────────────────────────────────────────
+		let nullable = {
+			// 숫자형 식별자( r<n> | r< n >p ) 케이스
+			if let Some(num_str) = self
+				.rel_name
+				.strip_prefix('r')
+				.map(|s| s.trim_end_matches('p'))
+			{
+				if let Ok(tid) = num_str.parse::<usize>() {
+					if let Some(schema) = z3.catalog.get(tid) {
+						if let Some(&flag) = schema.nullabilities.get(idx) {
+							return z3.attr_app(
+								&self.rel_name,
+								idx,
+								&self.cols.iter().collect::<Vec<_>>(),
+								ty,
+								flag,
+							);
+						}
 					}
 				}
 			}
-		} */
-
-		let mut nullable = true;
-
-		if let Ok(tid) = self
-			.rel_name
-			.trim_start_matches('r')
-			.trim_start_matches('p')
-			.chars()
-			.take_while(|c| c.is_ascii_digit())
-			.collect::<String>()
-			.parse::<usize>()
-		{
-			if let Some(schema) = z3.catalog.get(tid) {
-				if let Some(n) = schema.nullabilities.get(idx) {
-					nullable = *n;
+			// 이름 매칭 케이스 - 스키마에 `name` 필드가 있다면 직접 비교
+			// 이름 기반 매칭 지원 X
+			/* if let Some(schema) = z3.catalog.iter().find(|s| s.name == self.rel_name) {
+				if let Some(&flag) = schema.nullabilities.get(idx) {
+					return z3.attr_app(
+						&self.rel_name,
+						idx,
+						&self.cols.iter().collect::<Vec<_>>(),
+						ty,
+						flag,
+					);
 				}
-			}
-		} 
-		/* else if let Some(schema) = z3.catalog.iter().find(|s| s.name == self.rel_name) {
-			if let Some(n) = schema.nullabilities.get(idx) {
-				nullable = *n;
-			}
-		} */
-		else { }
+			} */
+			// 미확정 → nullable 로 가정
+			true
+		};
 
 		z3.attr_app(
 			&self.rel_name,
