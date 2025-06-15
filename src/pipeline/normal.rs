@@ -575,12 +575,32 @@ impl<'c> Z3Env<'c> {
         self.ctx.bool_is_true(&nullable_eq)
     }
 
-	pub fn equal_nonnull(
+	fn equal_nonnull(
 		&self, ty: &DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>,
 	) -> Dynamic<'c> {
-		let tri = self.equal(ty.clone(), a1, a2);
-		let strict = self.ctx.bool_is_true(&tri);
-		self.ctx.bool_some(strict)
+		use shared::DataType::*;
+		let ctx = &self.ctx;
+		let strict_sort = ctx.strict_sort(ty);
+
+		// strict 값이면 Option<…>::Some(_) 로 래핑
+		let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
+			if v.get_sort() == strict_sort {
+				match ty {
+					Integer => ctx.int_some(v.as_int().unwrap()),
+					Real    => ctx.real_some(v.as_real().unwrap()),
+					Boolean => ctx.bool_some(v.as_bool().unwrap()),
+					String  => ctx.string_some(v.as_string().unwrap()),
+					Custom(_) => v.clone(),
+				}
+			} else { v.clone() }
+		};
+		let v1 = lift(a1);
+		let v2 = lift(a2);
+
+		// 이제 두 피연산자는 모두 nullable sort → equal()이 재귀하지 않는다
+		let tri = self.equal(ty.clone(), &v1, &v2);
+		let strict = ctx.bool_is_true(&tri);
+		ctx.bool_some(strict)
 	}
 
 	pub fn cmp_nonnull(
@@ -590,9 +610,27 @@ impl<'c> Z3Env<'c> {
         a1: &Dynamic<'c>,
         a2: &Dynamic<'c>,
     ) -> Dynamic<'c> {
-        let tri = self.cmp(ty.clone(), cmp, a1, a2);
-        let strict = self.ctx.bool_is_true(&tri);
-        self.ctx.bool_some(strict)
+        use shared::DataType::*;
+        let ctx = &self.ctx;
+        let strict_sort = ctx.strict_sort(&ty);
+
+        let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
+            if v.get_sort() == strict_sort {
+                match ty {
+                    Integer => ctx.int_some(v.as_int().unwrap()),
+                    Real    => ctx.real_some(v.as_real().unwrap()),
+                    String  => ctx.string_some(v.as_string().unwrap()),
+                    Boolean => ctx.bool_some(v.as_bool().unwrap()),
+                    Custom(_) => v.clone(),
+                }
+            } else { v.clone() }
+        };
+        let v1 = lift(a1);
+        let v2 = lift(a2);
+
+        let tri = self.cmp(ty.clone(), cmp, &v1, &v2);
+        let strict = ctx.bool_is_true(&tri);
+        ctx.bool_some(strict)
     }
 
 	pub fn encode_subset(&self, t1: &TupCtx<'c>, _r1: &rel::Relation, t2: &TupCtx<'c>, _r2: &rel::Relation) -> Bool<'c> {
@@ -666,8 +704,9 @@ impl<'c> Z3Env<'c> {
 
         // ¬null(v1)
         let not_null = {
-            let null = self.ctx.none(&ty).unwrap();
-            null._eq(&v1).not()
+			let null = self.ctx.none(&ty).unwrap();
+			let is_nil = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &null, &v1, true));
+			is_nil.not()
         };
 
         // a₂(t') = a₁(t)   (Null-세이프 동등 / strict Bool)
@@ -740,8 +779,9 @@ impl<'c> Z3Env<'c> {
         let v2   = self.eval_attr(&tup2, a2);
 
         let not_null = {
-            let null = self.ctx.none(&ty).unwrap();
-            null._eq(&v1).not()
+			let null = self.ctx.none(&ty).unwrap();
+            let is_nil = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &null, &v1, true));
+            is_nil.not()
         };
 
         // let eq_val = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
@@ -820,8 +860,9 @@ impl<'c> Z3Env<'c> {
         let ty   = a.ty();
         let val  = self.eval_attr(&tup, a);
         let not_null = {
-            let null = self.ctx.none(&ty).unwrap();
-            null._eq(&val).not()
+			let null = self.ctx.none(&ty).unwrap();
+			let is_nil = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &null, &val, true));
+			is_nil.not()
         };
 
         let implication = mem(&t).implies(&not_null);
