@@ -8,6 +8,8 @@ use z3::{Config, Context, Solver};
 use crate::pipeline::normal::Z3Env;
 use crate::pipeline::normal::Env as NormEnv;
 use crate::pipeline::shared::{Ctx, Eval, Schema};
+use crate::pipeline::shared::VL;
+use crate::pipeline::relation as rel;
 use crate::pipeline::unify::{Unify, UnifyEnv};
 
 pub mod normal;
@@ -50,6 +52,122 @@ pub struct Stats {
 }
 
 pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input) -> (bool, Stats) {
+	// ──────────────────────────────────────────────────────────────
+	// T1: 제약 기반 스키마 정제 패스 (고정점)
+	//
+	// ① NotNull, RefAttr, FD(Y)  → 해당 칼럼 nullable = false
+	// ② RelEq, Subset            → 릴레이션 간 nullable 전파
+	//     고정점에 도달할 때까지 반복
+	// ──────────────────────────────────────────────────────────────
+	/* let mut schemas = schemas;
+	for c in &constraints {
+		if let constraint::Constraint::NotNull { r, a } = c {
+            if let &rel::Relation::Scan(VL(s_idx)) = r {
+				if let Some(schema) = schemas.get_mut(s_idx) {
+					// a : &Expr  역시 동일하게 &-패턴 사용
+					if let &rel::Expr::Col { column: VL(col_idx), .. } = a {
+						if let Some(flag) = schema.nullabilities.get_mut(col_idx) {
+							*flag = false;
+						}
+					}
+				}
+			}
+        }
+	} */
+	let mut schemas = schemas;
+	let mut changed = true;
+	let schema_len = schemas.len();
+
+	// Helper: Relation → Option<usize>
+	let rel_index = |r: &rel::Relation| -> Option<usize> {
+		if let rel::Relation::Scan(VL(idx)) = r { Some(*idx) } else { None }
+	};
+
+	// Helper: Expr → Option<usize>   (단순 컬럼일 때만)
+	let col_index = |e: &rel::Expr| -> Option<usize> {
+		if let rel::Expr::Col { column: VL(idx), .. } = e { Some(*idx) } else { None }
+	};
+
+	while changed {
+		changed = false;
+
+		for c in &constraints {
+			use constraint::Constraint::*;
+
+			match c {
+				// 1) 단일 칼럼을 바로 non-null 로 만드는 제약
+				NotNull { r, a }
+				| RefAttr { r2: r, a2: a, .. } => {
+					if let (Some(r_idx), Some(a_idx)) = (rel_index(r), col_index(a)) {
+						if let Some(flag) = schemas[r_idx].nullabilities.get_mut(a_idx) {
+							if *flag {
+								*flag = false;
+								changed = true;
+							}
+						}
+					}
+				}
+
+				// 2) 기능 종속 FD :   X → Y   ⇒   Y NOT NULL
+				FD { r, y, .. } if !y.is_empty() => {
+					if let Some(r_idx) = rel_index(r) {
+						for e in y {
+							if let Some(a_idx) = col_index(e) {
+								if let Some(flag) = schemas[r_idx].nullabilities.get_mut(a_idx) {
+									if *flag {
+										*flag = false;
+										changed = true;
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 3) 릴레이션 간 전파
+				RelEq { r1, r2 } | Subset { r1, r2 } => {
+					if let (Some(i1), Some(i2)) = (rel_index(r1), rel_index(r2)) {
+						let (s1, s2) = {
+							// Rust borrow rules: split immutable then mutable
+							let (head, tail) = schemas.split_at_mut(i2.max(i1));
+							if i1 < i2 {
+								(&mut head[i1], &mut tail[0])
+							} else if i2 < i1 {
+								(&mut tail[0], &mut head[i2])
+							} else {
+								continue; // 동일 인덱스
+							}
+						};
+
+						let len = s1.nullabilities.len().min(s2.nullabilities.len());
+
+						for k in 0..len {
+							// RelEq : 양방향, Subset : r2(상위) → r1(하위)
+							let n1 = s1.nullabilities[k];
+							let n2 = s2.nullabilities[k];
+
+							// r2 칼럼이 non-null 이면 r1 도 non-null
+							if !n2 && n1 {
+								s1.nullabilities[k] = false;
+								changed = true;
+							}
+							// RelEq 이면 반대 방향도
+							if matches!(c, RelEq { .. }) && !n1 && n2 {
+								s2.nullabilities[k] = false;
+								changed = true;
+							}
+						}
+					}
+				}
+
+				// 4) 그 외 제약은 nullability에 영향 없음
+				AttrsEq { .. } | PredEq { .. } | SubAttr { .. } | Unique { .. } | Const { .. } | FD { .. } => { 
+					/* no-op */ 
+				}
+			}
+		}
+	}
+	
 	let mut stats = Stats::default();
 	let subst = vector![];
 	let env = relation::Env(&schemas, &subst, 0);
