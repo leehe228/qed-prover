@@ -9,3 +9,6 @@ target/
 
 *.agdai
 *.res
+
+*.result
+output.txt
