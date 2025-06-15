@@ -3,6 +3,7 @@ import os
 import argparse
 from pathlib import Path
 from tqdm import tqdm
+from datetime import datetime
 
 def list_code_files_markdown(base_dir: str, extensions: tuple[str, ...], max_depth: int) -> str:
     base_path = Path(os.path.expanduser(base_dir)).resolve()
@@ -44,12 +45,17 @@ def main():
     parser.add_argument('--dir', type=str, required=True, help="Base directory to search")
     parser.add_argument('--ext', type=str, nargs='+', default=['.rs'], help="Extensions to include (e.g., .py .rs)")
     parser.add_argument('--depth', type=int, default=3, help="Max depth to recurse from base directory")
-    parser.add_argument('--output', type=str, default="./output.txt", help="Output .txt file path")
+    parser.add_argument('--output', type=str, default="default", help="Output .txt file path")
 
     args = parser.parse_args()
     markdown_text = list_code_files_markdown(args.dir, tuple(args.ext), args.depth)
 
-    output_path = Path(os.path.expanduser(args.output)).resolve()
+    if args.output == "default":
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = Path(f"./output_{timestamp}.txt").resolve()
+    else:
+        output_path = Path(os.path.expanduser(args.output)).resolve()
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open('w', encoding='utf-8') as f:
         f.write(markdown_text)
