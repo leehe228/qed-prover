@@ -430,6 +430,7 @@ pub struct Z3Env<'c> {
 	pub ctx: Rc<Ctx<'c>>,
 	pub tuple_sort: Sort<'c>,
 	pub subst: Vector<Dynamic<'c>>,
+	pub phi: Option<Bool<'c>>, 	// Global Constraints
 	pub h_ops: Rc<RefCell<HOpMap<'c>>>,
 	pub aggs: Rc<RefCell<AggMap<'c>>>,
 	pub rel_h_ops: Rc<RefCell<RelHOpMap<'c>>>,
@@ -826,6 +827,7 @@ impl<'c> Z3Env<'c> {
 		Z3Env {
 			ctx,
 			subst,
+			phi: None, // Global constraints
 			h_ops: Default::default(),
 			aggs: Default::default(),
 			rel_h_ops: Default::default(),
@@ -834,18 +836,28 @@ impl<'c> Z3Env<'c> {
 		}
 	}
 
+	/// Store φ in the environment (to be called once, right after evaluation).
+    pub fn set_phi(&mut self, phi: Bool<'c>) { self.phi = Some(phi); }
+
+    /// Push φ into the *current* solver frame (a no-op if φ is `None`).
+    pub fn assert_phi(&self) {
+        if let Some(ref phi) = self.phi {
+            self.ctx.solver.assert(phi);
+        }
+    } 
+
 	pub fn extend(&self, scope: &Vector<DataType>) -> Self {
 		let vars = scope.into_iter().map(|ty| self.ctx.var(ty, "v")).collect();
-		Z3Env { subst: self.subst.clone() + vars, catalog: self.catalog.clone(), ..self.clone() }
+		Z3Env { subst: self.subst.clone() + vars, catalog: self.catalog.clone(), phi: self.phi.clone(), ..self.clone() }
 	}
 
 	pub fn extend_vals(&self, vals: &Vector<Dynamic<'c>>) -> Self {
-		Z3Env { subst: &self.subst + vals, ..self.clone() }
+		Z3Env { subst: &self.subst + vals, phi: self.phi.clone(), ..self.clone() }
 	}
 
 	pub fn extend_vars(&self, scope: &Vector<DataType>) -> (Z3Env<'c>, Vector<Dynamic<'c>>) {
 		let vars = scope.into_iter().map(|ty| self.ctx.var(ty, "v")).collect();
-		(Z3Env { subst: &self.subst + &vars, ..self.clone() }, vars)
+		(Z3Env { subst: &self.subst + &vars, phi: self.phi.clone(), ..self.clone() }, vars)
 	}
 
 	fn exists(&self, vars: &Vector<Dynamic<'c>>, body: &Bool<'c>) -> Bool<'c> {

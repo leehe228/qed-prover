@@ -216,6 +216,7 @@ pub fn stablize<'c>(
 	let z3_asts = exprs.iter().map(|&e| z3_env.eval(e)).collect_vec();
 	let z3_asts = z3_asts.iter().map(|e| e as &dyn Ast).collect_vec();
 	solver.push();
+	z3_env.assert_phi();
 	solver.assert(&constraint);
 	let handle = solver.get_context().handle();
 	let checked = crossbeam::atomic::AtomicCell::new(false);
