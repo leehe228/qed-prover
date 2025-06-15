@@ -10,7 +10,7 @@
           "group":{
             "keys":[ { "column":0,"type":"INTEGER"} ],
             "function":[ {
-              "function":"MIN","operand":[ { "column":1,"type":"INTEGER"} ],"type":"INTEGER"
+              "op":"MIN","operand":[ { "column":1,"type":"INTEGER"} ],"type":"INTEGER"
             } ],
             "source":{ "scan":0 }
           }

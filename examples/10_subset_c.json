@@ -8,7 +8,7 @@
     {
       "project":{
         "source":{
-          "unionAll":[ { "scan":0 }, { "scan":1 } ]
+          "union":[ { "scan":0 }, { "scan":1 } ]
         },
         "target":[ { "column":0,"type":"INTEGER"} ]
       }
