@@ -1,5 +1,5 @@
 {
-  "help":["Const(t.flag,1) eliminates filter"],
+  "help":["Const(t.flag,1) eliminates filter", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["flag"],"guaranteed":[],"key":[] }
   ],

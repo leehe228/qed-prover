@@ -1,5 +1,5 @@
 {
-  "help": ["AttrsEq(a,b) makes two projections equal"],
+  "help": ["AttrsEq(a,b) makes two projections equal", "optimized"],
   "schemas": [
     { "types": ["INTEGER","INTEGER"], "nullable": [false,false], "name": "t", "fields": ["a","b"], "guaranteed": [], "key": [] }
   ],

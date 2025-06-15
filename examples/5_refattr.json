@@ -1,5 +1,5 @@
 {
-  "help":["join vs plain"],
+  "help":["join vs plain", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"parent","fields":["id"],"guaranteed":[],"key":[[0]] },
     { "types":["INTEGER"],"nullable":[false],"name":"child","fields":["pid"],"guaranteed":[],"key":[] }

@@ -1,5 +1,5 @@
 {
-  "help":["distinct vs raw"],
+  "help":["distinct vs raw", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["k"],"guaranteed":[],"key":[] }
   ],

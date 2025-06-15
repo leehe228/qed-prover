@@ -1,5 +1,5 @@
 {
-  "help":["RefAttr(child.pid,parent.id)"],
+  "help":["RefAttr(child.pid,parent.id)", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"parent","fields":["id"],"guaranteed":[],"key":[[0]] },
     { "types":["INTEGER"],"nullable":[false],"name":"child","fields":["pid"],"guaranteed":[],"key":[] }

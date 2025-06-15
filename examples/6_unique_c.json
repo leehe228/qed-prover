@@ -1,5 +1,5 @@
 {
-  "help":["Unique(t.k) removes need for DISTINCT"],
+  "help":["Unique(t.k) removes need for DISTINCT", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["k"],"guaranteed":[],"key":[] }
   ],

@@ -1,5 +1,5 @@
 {
-  "help":["SubAttr(id,id)"],
+  "help":["SubAttr(id,id)", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["id"],"guaranteed":[],"key":[] }
   ],

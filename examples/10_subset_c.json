@@ -1,5 +1,5 @@
 {
-  "help":["Subset(r0,r1) lets union collapse to r1"],
+  "help":["Subset(r0,r1) lets union collapse to r1", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"r0","fields":["x"],"guaranteed":[],"key":[] },
     { "types":["INTEGER"],"nullable":[false],"name":"r1","fields":["x"],"guaranteed":[],"key":[] }

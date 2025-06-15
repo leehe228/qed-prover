@@ -1,5 +1,5 @@
 {
-  "help":["union r0 r1 vs r1"],
+  "help":["union r0 r1 vs r1", "optimized"],
   "schemas":[
     { "types":["INTEGER"],"nullable":[false],"name":"r0","fields":["x"],"guaranteed":[],"key":[] },
     { "types":["INTEGER"],"nullable":[false],"name":"r1","fields":["x"],"guaranteed":[],"key":[] }

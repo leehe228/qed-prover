@@ -1,5 +1,5 @@
 {
-  "help": ["select col0 vs col1"],
+  "help": ["select col0 vs col1", "optimized"],
   "schemas": [
     { "types": ["INTEGER","INTEGER"], "nullable": [false,false], "name": "t", "fields": ["a","b"], "guaranteed": [], "key": [] }
   ],

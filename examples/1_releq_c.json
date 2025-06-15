@@ -1,5 +1,5 @@
 {
-  "help": ["scan r0 vs r1 – RelEq makes them equal"],
+  "help": ["scan r0 vs r1 - RelEq makes them equal", "optimized"],
   "schemas": [
     { "types": ["INTEGER"], "nullable": [false], "name": "r0", "fields": ["id"], "guaranteed": [], "key": [[0]] },
     { "types": ["INTEGER"], "nullable": [false], "name": "r1", "fields": ["id"], "guaranteed": [], "key": [[0]] }

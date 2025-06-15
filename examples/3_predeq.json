@@ -1,5 +1,5 @@
 {
-  "help": ["filter >10 vs NOT <=10"],
+  "help": ["filter >10 vs NOT <=10", "optimized"],
   "schemas": [
     { "types": ["INTEGER"], "nullable": [false], "name": "t", "fields": ["v"], "guaranteed": [], "key": [] }
   ],

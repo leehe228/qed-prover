@@ -1,5 +1,5 @@
 {
-  "help":["group by + min vs raw"],
+  "help":["group by + min vs raw", "optimized"],
   "schemas":[
     { "types":["INTEGER","INTEGER"],"nullable":[false,false],"name":"t","fields":["x","y"],"guaranteed":[],"key":[] }
   ],

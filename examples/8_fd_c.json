@@ -1,5 +1,5 @@
 {
-  "help":["FD X→Y makes grouped query equal to raw"],
+  "help":["FD X→Y makes grouped query equal to raw", "optimized"],
   "schemas":[
     { "types":["INTEGER","INTEGER"],"nullable":[false,false],"name":"t","fields":["x","y"],"guaranteed":[],"key":[] }
   ],

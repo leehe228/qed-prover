@@ -1,5 +1,5 @@
 {
-  "help": ["PredEq makes filters equivalent"],
+  "help": ["PredEq makes filters equivalent", "optimized"],
   "schemas": [
     { "types": ["INTEGER"], "nullable": [false], "name": "t", "fields": ["v"], "guaranteed": [], "key": [] }
   ],
