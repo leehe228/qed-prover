@@ -1,0 +1,33 @@
+{
+  "help": ["PredEq makes filters equivalent"],
+  "schemas": [
+    { "types": ["INTEGER"], "nullable": [false], "name": "t", "fields": ["v"], "guaranteed": [], "key": [] }
+  ],
+  "queries": [
+    {
+      "project": {
+        "source": { "filter": { "condition": {
+          "type":"BOOLEAN","operand":[{ "column":0,"type":"INTEGER" },{"type":"INTEGER","operand":[],"operator":"10"}],"operator":">"
+        },"source":{"scan":0}} },
+        "target":[{ "column":0,"type":"INTEGER"}]
+      }
+    },
+    {
+      "project": {
+        "source": { "filter": { "condition": {
+          "type":"BOOLEAN","operand":[
+            { "type":"BOOLEAN","operand":[{ "column":0,"type":"INTEGER" },{"type":"INTEGER","operand":[],"operator":"10"}],"operator":"<=" }
+          ],"operator":"NOT"},"source":{"scan":0}} },
+        "target":[{ "column":0,"type":"INTEGER"}]
+      }
+    }
+  ],
+  "constraints": [
+    { "kind":"predEq",
+      "p1": { "type":"BOOLEAN","operand":[{ "column":0,"type":"INTEGER" },{"type":"INTEGER","operand":[],"operator":"10"}],"operator":">" },
+      "p2": { "type":"BOOLEAN","operand":[
+          { "type":"BOOLEAN","operand":[{ "column":0,"type":"INTEGER" },{"type":"INTEGER","operand":[],"operator":"10"}],"operator":"<=" }
+        ],"operator":"NOT" }
+    }
+  ]
+}

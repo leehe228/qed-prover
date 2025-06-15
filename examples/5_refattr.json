@@ -1,0 +1,36 @@
+{
+  "help":["join vs plain"],
+  "schemas":[
+    { "types":["INTEGER"],"nullable":[false],"name":"parent","fields":["id"],"guaranteed":[],"key":[[0]] },
+    { "types":["INTEGER"],"nullable":[false],"name":"child","fields":["pid"],"guaranteed":[],"key":[] }
+  ],
+  "queries":[
+    {
+      "project":{
+        "source":{ "scan":1 },
+        "target":[ { "column":0,"type":"INTEGER"} ]
+      }
+    },
+    {
+      "project":{
+        "source":{
+          "join":{
+            "condition":{
+              "type":"BOOLEAN",
+              "operand":[
+                { "column":0,"type":"INTEGER" },
+                { "column":1,"type":"INTEGER" }
+              ],
+              "operator":"="
+            },
+            "left":{ "scan":1 },
+            "kind":"INNER",
+            "right":{ "scan":0 }
+          }
+        },
+        "target":[ { "column":0,"type":"INTEGER"} ]
+      }
+    }
+  ],
+  "constraints":[]
+}

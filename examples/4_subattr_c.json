@@ -1,0 +1,18 @@
+{
+  "help":["SubAttr(id,id)"],
+  "schemas":[
+    { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["id"],"guaranteed":[],"key":[] }
+  ],
+  "queries":[
+    { "project":{ "source":{ "scan":0 },"target":[{ "column":0,"type":"INTEGER"}] } },
+    { "project":{ "source":{ "scan":0 },"target":[
+        { "type":"INTEGER","operand":[{ "column":0,"type":"INTEGER"}],"operator":"identity" }
+    ] } }
+  ],
+  "constraints":[
+    { "kind":"subAttr",
+      "a1": { "column":0,"type":"INTEGER" },
+      "a2": { "column":0,"type":"INTEGER" }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "help":["distinct vs raw"],
+  "schemas":[
+    { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["k"],"guaranteed":[],"key":[] }
+  ],
+  "queries":[
+    { "project":{
+        "source":{ "scan":0 },
+        "target":[ { "column":0,"type":"INTEGER"} ],
+        "distinct":true
+      }
+    },
+    { "project":{
+        "source":{ "scan":0 },
+        "target":[ { "column":0,"type":"INTEGER"} ]
+      }
+    }
+  ],
+  "constraints":[]
+}

@@ -42,5 +42,11 @@
       }
     }
   ],
-  "constraints": []
+  "constraints": [
+    {
+      "kind": "notNull",
+      "r": { "scan": 0 },
+      "a": { "column": 0, "type": "INTEGER" }
+    }
+  ]
 }

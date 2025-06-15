@@ -1,0 +1,30 @@
+{
+  "help":["filter vs no-filter"],
+  "schemas":[
+    { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["flag"],"guaranteed":[],"key":[] }
+  ],
+  "queries":[
+    {
+      "project":{
+        "source":{
+          "filter":{
+            "condition":{
+              "type":"BOOLEAN",
+              "operand":[ { "column":0,"type":"INTEGER" }, { "type":"INTEGER","operand":[],"operator":"1"} ],
+              "operator":"="
+            },
+            "source":{ "scan":0 }
+          }
+        },
+        "target":[ { "column":0,"type":"INTEGER"} ]
+      }
+    },
+    {
+      "project":{
+        "source":{ "scan":0 },
+        "target":[ { "column":0,"type":"INTEGER"} ]
+      }
+    }
+  ],
+  "constraints":[]
+}

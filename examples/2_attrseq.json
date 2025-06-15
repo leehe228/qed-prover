@@ -1,0 +1,11 @@
+{
+  "help": ["select col0 vs col1"],
+  "schemas": [
+    { "types": ["INTEGER","INTEGER"], "nullable": [false,false], "name": "t", "fields": ["a","b"], "guaranteed": [], "key": [] }
+  ],
+  "queries": [
+    { "project": { "source": { "scan": 0 }, "target": [ { "column": 0, "type": "INTEGER" } ] } },
+    { "project": { "source": { "scan": 0 }, "target": [ { "column": 1, "type": "INTEGER" } ] } }
+  ],
+  "constraints": []
+}

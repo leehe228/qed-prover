@@ -1,0 +1,26 @@
+{
+  "help":["Subset(r0,r1) lets union collapse to r1"],
+  "schemas":[
+    { "types":["INTEGER"],"nullable":[false],"name":"r0","fields":["x"],"guaranteed":[],"key":[] },
+    { "types":["INTEGER"],"nullable":[false],"name":"r1","fields":["x"],"guaranteed":[],"key":[] }
+  ],
+  "queries":[
+    {
+      "project":{
+        "source":{
+          "unionAll":[ { "scan":0 }, { "scan":1 } ]
+        },
+        "target":[ { "column":0,"type":"INTEGER"} ]
+      }
+    },
+    {
+      "project":{
+        "source":{ "scan":1 },
+        "target":[ { "column":0,"type":"INTEGER"} ]
+      }
+    }
+  ],
+  "constraints":[
+    { "kind":"subset", "r1":{ "scan":0 }, "r2":{ "scan":1 } }
+  ]
+}

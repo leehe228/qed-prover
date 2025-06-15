@@ -1,0 +1,29 @@
+{
+  "help":["group by + min vs raw"],
+  "schemas":[
+    { "types":["INTEGER","INTEGER"],"nullable":[false,false],"name":"t","fields":["x","y"],"guaranteed":[],"key":[] }
+  ],
+  "queries":[
+    {
+      "project":{
+        "source":{
+          "group":{
+            "keys":[ { "column":0,"type":"INTEGER"} ],
+            "function":[ {
+              "function":"MIN","operand":[ { "column":1,"type":"INTEGER"} ],"type":"INTEGER"
+            } ],
+            "source":{ "scan":0 }
+          }
+        },
+        "target":[ { "column":0,"type":"INTEGER" }, { "column":1,"type":"INTEGER"} ]
+      }
+    },
+    {
+      "project":{
+        "source":{ "scan":0 },
+        "target":[ { "column":0,"type":"INTEGER" }, { "column":1,"type":"INTEGER"} ]
+      }
+    }
+  ],
+  "constraints":[]
+}

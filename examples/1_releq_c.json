@@ -1,0 +1,14 @@
+{
+  "help": ["scan r0 vs r1 – RelEq makes them equal"],
+  "schemas": [
+    { "types": ["INTEGER"], "nullable": [false], "name": "r0", "fields": ["id"], "guaranteed": [], "key": [[0]] },
+    { "types": ["INTEGER"], "nullable": [false], "name": "r1", "fields": ["id"], "guaranteed": [], "key": [[0]] }
+  ],
+  "queries": [
+    { "project": { "source": { "scan": 0 }, "target": [ { "column": 0, "type": "INTEGER" } ] } },
+    { "project": { "source": { "scan": 1 }, "target": [ { "column": 0, "type": "INTEGER" } ] } }
+  ],
+  "constraints": [
+    { "kind": "relEq", "r1": { "scan": 0 }, "r2": { "scan": 1 } }
+  ]
+}
