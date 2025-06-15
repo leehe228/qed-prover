@@ -292,35 +292,63 @@ pub struct Env {
 }
 
 impl Env {
-	pub fn new(types: Vector<DataType>, catalog: Rc<Vec<Schema>>) -> Self {
+	/* pub fn new(types: Vector<DataType>, catalog: Rc<Vec<Schema>>) -> Self {
 		let nulls: Vector<bool> = iter::repeat(true).take(types.len()).collect();
+		Self { types, nulls, catalog }
+	} */
+	pub fn new(types: Vector<DataType>, nulls: Vector<bool>, catalog: Rc<Vec<Schema>>) -> Self {
+		assert_eq!(types.len(), nulls.len(), "types / nullability mismatch");
 		Self { types, nulls, catalog }
 	}
 
-	pub fn new_with_nulls(
+	/* pub fn new_with_nulls(
 		types: Vector<DataType>,
 		nulls: Vector<bool>,
 		catalog: Rc<Vec<Schema>>,
 	) -> Self {
 		assert_eq!(types.len(), nulls.len(), "types / nullability mismatch");
 		Self { types, nulls, catalog }
-	}
+	} */
+	// Convenience constructor that assumes *all* variables are nullable (legacy code‑path).
+    pub fn new_all_nullable(types: Vector<DataType>, catalog: Rc<Vec<Schema>>) -> Self {
+        let nulls: Vector<bool> = iter::repeat(true).take(types.len()).collect();
+        Self { types, nulls, catalog }
+    }
 
 	pub fn nulls(&self) -> &Vector<bool> { &self.nulls }
 
-    pub fn extend(&self, scope: &Vector<DataType>) -> Self {
+    /* pub fn extend(&self, scope: &Vector<DataType>) -> Self {
 		let more_nulls: Vector<bool> = iter::repeat(true).take(scope.len()).collect();
         Self { 
 			types: self.types.clone() + scope.clone(), 
 			nulls: self.nulls.clone() + more_nulls,
 			catalog: self.catalog.clone() 
 		}
-    }
+    } */
+	// Extend the environment with a new *scope* and its corresponding nullability vector (T2.2).
+    pub fn extend(&self, scope: &Vector<DataType>, nulls_for_scope: &Vector<bool>) -> Self {
+        assert_eq!(scope.len(), nulls_for_scope.len(), "scope / nullability mismatch");
+        Self {
+            types:   self.types.clone() + scope.clone(),
+            nulls:   self.nulls.clone() + nulls_for_scope.clone(),
+            catalog: self.catalog.clone(),
+        }
+	}
 
-	pub fn from_types(types: Vector<DataType>) -> Self {
+	/* pub fn from_types(types: Vector<DataType>) -> Self {
         // Self { types, catalog: Rc::new(Vec::new()) }
 		Self::new(types, Rc::new(Vec::new()))
+    } */
+    // Build an empty environment from only the type vector (all nullable).
+    pub fn from_types(types: Vector<DataType>) -> Self {
+        Self::new_all_nullable(types, Rc::new(Vec::new()))
     }
+
+    // Legacy helper – extend by variables (all nullable).  Existing call‑sites keep working.
+    pub fn extend_vars(&self, scope: &Vector<DataType>) -> Self {
+        let nulls: Vector<bool> = iter::repeat(true).take(scope.len()).collect();
+        self.extend(scope, &nulls)
+	}
 }
 
 /* impl Deref for Env {
@@ -334,7 +362,8 @@ impl Add<&Vector<DataType>> for &Env {
         Env { types: self.types.clone() + rhs.clone(), catalog: self.catalog.clone() }
     }
 } */
-impl Deref for Env {
+
+/* impl Deref for Env {
 	type Target = Vector<DataType>;
 	fn deref(&self) -> &Self::Target { &self.types }
 }
@@ -343,6 +372,22 @@ impl Add<&Vector<DataType>> for &Env {
 	type Output = Env;
 	#[inline]
 	fn add(self, rhs: &Vector<DataType>) -> Env { self.extend(rhs) }
+} */
+
+// T2.3 – keep `Deref` as‑is but update `Add` to propagate nullability
+impl Deref for Env {
+    type Target = Vector<DataType>;
+    fn deref(&self) -> &Self::Target { &self.types }
+}
+
+impl Add<&Vector<DataType>> for &Env {
+    type Output = Env;
+    #[inline]
+    fn add(self, rhs: &Vector<DataType>) -> Env {
+        // Newly bound variables are assumed *nullable* by default
+        let nulls: Vector<bool> = iter::repeat(true).take(rhs.len()).collect();
+        self.extend(rhs, &nulls)
+    }
 }
 
 impl Eval<partial::Aggr, Expr> for &Env {

@@ -195,7 +195,8 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 	}
 	let catalog_rc = Rc::new(schemas.clone());
 	// let nom_env = &vector![];
-	let nom_env = NormEnv::new(vector![], catalog_rc.clone());
+	// let nom_env = NormEnv::new(vector![], catalog_rc.clone());
+	let nom_env = NormEnv::new_all_nullable(vector![], catalog_rc.clone());
 	let eval_nom = |rel: syntax::Relation| -> normal::Relation {
 		let rel = (&partial::Env::default()).eval(rel);
 		// nom_env.eval(rel)
