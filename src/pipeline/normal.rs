@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Write};
 use std::ops::{Range, Add, Deref};
 use std::rc::Rc;
-use std::iter::{self, FromIterator, Repeat};
+// use std::iter::{self, FromIterator, Repeat};
+use std::iter;
 
 use anyhow::bail;
 use imbl::{vector, HashSet, Vector};
@@ -243,7 +244,7 @@ impl Logic {
 		}
 	}
 
-	fn simpl(self) -> Self {
+	/* fn simpl(self) -> Self {
 		use shared::Logic::*;
 		match self {
 			Eq(e1, e2) if e1 == e2 => Logic::tt(),
@@ -267,7 +268,7 @@ impl Logic {
 			Neg(l) => Neg(l.simpl().into()),
 			l => l,
 		}
-	}
+	} */
 
 	pub(crate) fn exprs(&self) -> Vector<&Expr> {
 		use shared::Logic::*;
@@ -514,9 +515,9 @@ pub struct Z3Env<'c> {
 
 impl<'c> Z3Env<'c> {
 	#[inline]
-	fn bool_true(&self) -> Bool<'c> {
+	/* fn bool_true(&self) -> Bool<'c> {
 		Bool::from_bool(self.ctx.z3_ctx(), true)
-	}
+	} */
 
 	pub fn fresh_tuple_vars_of(&self, schema: &[DataType]) -> Vector<Dynamic<'c>> {
 		schema.iter().map(|ty| self.ctx.var(ty, "t")).collect()
@@ -633,102 +634,61 @@ impl<'c> Z3Env<'c> {
         ctx.bool_some(strict)
     }
 
-	pub fn encode_subset(&self, t1: &TupCtx<'c>, _r1: &rel::Relation, t2: &TupCtx<'c>, _r2: &rel::Relation) -> Bool<'c> {
-		let z3_ctx = self.ctx.z3_ctx();
+	pub fn encode_subset(&self, r1: &rel::Relation, r2: &rel::Relation) -> Bool<'c> {
+		let z3_ctx   = self.ctx.z3_ctx();
+		let tuple_s  = &self.tuple_sort;
 
-		// Build one opaque “tuple” object that will stand for a row of either relation.
-		// We model membership of a tuple in a relation via the unary predicate
-		//   rel!<name>p(tuple) : Bool
-		// and then assert    rel₁(t) ⇒ rel₂(t)   for all tuples t.
-		//
-		// A single uninterpreted sort is sufficient, because attributes are accessed
-		// through separate uninterpreted functions that take the same tuple as their
-		// first (and only) argument.
-		let tuple_sort = z3::Sort::uninterpreted(
-			z3_ctx,
-			z3::Symbol::String("Tuple".into())
-		);
-		let t = z3::ast::Dynamic::fresh_const(z3_ctx, "t", &tuple_sort);
+		// ① 단일 tuple 상수를 만들고
+		let t   = Dynamic::fresh_const(z3_ctx, "t", tuple_s);
 
-		// Helper that builds the unary membership predicate symbol “rel!<name>p”.
+		// ② 멤버십 UF 이름은 rel!<tbl>p 형식으로 통일
 		let pred = |name: &str| {
 			let f = z3::FuncDecl::new(
 				z3_ctx,
-				format!("{}p", Self::u_name_of_relation(name)),
-				&[&tuple_sort],
+				format!("{}p", Z3Env::u_name_of_relation(name)),
+				&[tuple_s],
 				&z3::Sort::bool(z3_ctx),
 			);
 			f.apply(&[&t]).as_bool().unwrap()
 		};
 
-		let in_r1 = pred(&t1.rel_name);
-		let in_r2 = pred(&t2.rel_name);
+		let in_r1 = pred(&r1.name());
+		let in_r2 = pred(&r2.name());
 
-		// ∀t.  in_r1(t)  ⇒  in_r2(t)
-		let forall = {
-			let bound : [&dyn z3::ast::Ast; 1] = [&t];
-			z3::ast::forall_const(z3_ctx, &bound, &[], &in_r1.implies(&in_r2))
-		};
-
-		forall
+		let bound : [&dyn Ast; 1] = [&t];
+		let body  = in_r1.implies(&in_r2);
+		z3::ast::forall_const(z3_ctx, &bound, &[], &body)
 	}
 
 	pub fn encode_subattr(&self, a1: &rel::Expr, a2: &rel::Expr) -> Bool<'c> {
-		use z3::ast::{forall_const, exists_const};
+		use z3::ast::{forall_const, Ast};
 
-        let z3_ctx  = self.ctx.z3_ctx();
-        let tuple_s = &self.tuple_sort;
+		let z3_ctx  = self.ctx.z3_ctx();
+		let tuple_s = &self.tuple_sort;
 
-        // bound variables
-        let t  = Dynamic::fresh_const(z3_ctx, "t",  &tuple_s);
-        let tp = Dynamic::fresh_const(z3_ctx, "t'", &tuple_s);
+		// 단일 튜플 변수 t : Tuple
+		let t = Dynamic::fresh_const(z3_ctx, "t", tuple_s);
+		let tup = TupCtx {
+			rel_name: "_".into(),          // 실제 릴레이션 이름과 무관
+			cols: vector![t.clone()],
+		};
 
-        // unary “membership” predicates
-        let mem  = |name: &str, tup: &Dynamic<'c>| {
-            let f = z3::FuncDecl::new(
-                z3_ctx,
-                format!("{}p", Self::u_name_of_relation(name)),
-                &[&tuple_s],
-                &z3::Sort::bool(z3_ctx),
-            );
-            f.apply(&[tup]).as_bool().unwrap()
-        };
+		let ty  = a1.ty();                 // a₁, a₂ 공통 타입
+		let v1  = self.eval_attr(&tup, a1);    // a₁(t)
+		let v2  = self.eval_attr(&tup, a2);    // a₂(t)
 
-        // tuple contexts for attribute evaluation
-        let tup1 = TupCtx { rel_name: "r1".into(), cols: vector![t.clone()] };
-        let tup2 = TupCtx { rel_name: "r2".into(), cols: vector![tp.clone()] };
+		// ¬IsNull(a₁(t))
+		let null     = self.ctx.none(&ty).unwrap();
+		let is_null  = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &v1, &null, true));
+		let not_null = is_null.not();
 
-        let ty   = a1.ty();                       // 공통 타입
-        let v1   = self.eval_attr(&tup1, a1);
-        let v2   = self.eval_attr(&tup2, a2);
-
-        // ¬null(v1)
-        let not_null = {
-			let null = self.ctx.none(&ty).unwrap();
-			let is_nil = self.ctx.bool_is_true(&self.equal_with_hint(ty.clone(), &null, &v1, true));
-			is_nil.not()
-        };
-
-        // a₂(t') = a₁(t)   (Null-세이프 동등 / strict Bool)
-        // let eq_val  = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
+		// a₁(t) = a₂(t)  (NULL-세이프 비교)
 		let eq_val = self.ctx.bool_is_true(&self.equal_with_hint(ty, &v1, &v2, true));
 
-        // 본문 : R₂(t') ∧ a₂(t') = a₁(t)
-        let body = Bool::and(z3_ctx, &[&mem("r2", &tp), &eq_val]);
-
-        // ∃ t'. body
-        let exists  = {
-            let bnds : [&dyn Ast; 1] = [&tp];
-            exists_const(z3_ctx, &bnds, &[], &body)
-        };
-
-        // ∀ t.    ¬null(a₁(t))  ⇒  ∃ …
-        let antecedent = not_null;
-        let conseq     = exists;
-        let implication = antecedent.implies(&conseq);
-
-        let bnds : [&dyn Ast; 1] = [&t];
-        forall_const(z3_ctx, &bnds, &[], &implication)
+		// ∀t. ¬null(a₁(t)) ⇒ (a₁(t)=a₂(t))
+		let impl_ = not_null.implies(&eq_val);
+		let bnds : [&dyn Ast; 1] = [&t];
+		forall_const(z3_ctx, &bnds, &[], &impl_)
 	}
 
 	pub fn eval_attr(&self, tup: &TupCtx<'c>, e: &rel::Expr) -> Dynamic<'c> {
@@ -739,20 +699,14 @@ impl<'c> Z3Env<'c> {
                 let dargs: Vec<_> = args.iter().map(|a| self.eval_attr(tup, a)).collect();
                 self.ctx.app(&Self::uf_name_of_expr(op), &dargs.iter().collect::<Vec<_>>(), ty, true)
             }
-            Op { op, args, ty, rel: Some(q) } => {
+            Op { op, args, ty, rel: Some(_q) } => {
                 let dargs: Vec<_> = args.iter().map(|a| self.eval(a)).collect();
                 self.ctx.app(&Self::uf_name_of_expr(op), &dargs.iter().collect::<Vec<_>>(), ty, true)
             }
 		}
 	}
 
-	pub fn encode_refattr(
-		&self,
-		_r1: &rel::Relation,
-		a1: &rel::Expr,
-		_r2: &rel::Relation,
-		a2: &rel::Expr,
-	) -> Bool<'c> {
+	pub fn encode_refattr(&self, r1: &rel::Relation, a1: &rel::Expr, r2: &rel::Relation, a2: &rel::Expr) -> Bool<'c> {
 		use z3::ast::{forall_const, exists_const};
 
         let z3_ctx  = self.ctx.z3_ctx();
@@ -771,8 +725,14 @@ impl<'c> Z3Env<'c> {
             f.apply(&[tup]).as_bool().unwrap()
         };
 
-        let tup1 = TupCtx { rel_name: "r1".into(), cols: vector![t.clone()] };
-        let tup2 = TupCtx { rel_name: "r2".into(), cols: vector![tp.clone()] };
+        let tup1 = TupCtx {
+			rel_name: Z3Env::u_name_of_relation(&r1.name()),
+			cols: vector![t.clone()],
+		};
+		let tup2 = TupCtx {
+			rel_name: Z3Env::u_name_of_relation(&r2.name()),
+			cols: vector![tp.clone()],
+		};
 
         let ty   = a1.ty();
         let v1   = self.eval_attr(&tup1, a1);
@@ -787,14 +747,20 @@ impl<'c> Z3Env<'c> {
         // let eq_val = self.ctx.bool_is_true(&self.equal(ty, &v1, &v2));
 		let eq_val = self.ctx.bool_is_true(&self.equal_with_hint(ty, &v1, &v2, true));
 
-        let body   = Bool::and(z3_ctx, &[&mem("r2", &tp), &eq_val]);
+        let body = {
+			let r2_name = r2.name();
+			Bool::and(z3_ctx, &[&mem(&r2_name, &tp), &eq_val])
+		};
 
         let exists = {
             let bnds : [&dyn Ast; 1] = [&tp];
             exists_const(z3_ctx, &bnds, &[], &body)
         };
 
-        let antecedent = Bool::and(z3_ctx, &[&mem("r1", &t), &not_null]);
+        let antecedent = {
+			let r1_name = r1.name();
+			Bool::and(z3_ctx, &[&mem(&r1_name, &t), &not_null])
+		};
         let implication = antecedent.implies(&exists);
 
         let bnds : [&dyn Ast; 1] = [&t];
@@ -905,7 +871,7 @@ impl<'c> Z3Env<'c> {
             let ty  = e.ty();
             let vt  = self.eval_attr(&tup_t, e);
             let vu  = self.eval_attr(&tup_u, e);
-            self.ctx.bool_is_true(&self.equal(ty, &vt, &vu))
+            self.ctx.bool_is_true(&self.equal_with_hint(ty, &vt, &vu, true)) // apply hint
         }).collect();
 
         let eq_ys : Vec<Bool<'c>> = y.iter().map(|e| {
@@ -1025,30 +991,27 @@ impl<'c> Z3Env<'c> {
 	}
 
 	fn equal_inner(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>, nonnull_hint: bool) -> Dynamic<'c> {
-		if nonnull_hint {
-			return self.equal_nonnull(&ty, a1, a2);
-		}
-
 		use shared::DataType::*;
 		let ctx = &self.ctx;
 		let strict_sort = ctx.strict_sort(&ty);
-
 		let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
 			if v.get_sort() == strict_sort {
 				match ty {
 					Integer => ctx.int_some(v.as_int().unwrap()),
 					Real => ctx.real_some(v.as_real().unwrap()),
-					Boolean => ctx.bool_some(v.as_bool().unwrap()),
 					String => ctx.string_some(v.as_string().unwrap()),
+					Boolean => ctx.bool_some(v.as_bool().unwrap()),
 					Custom(_) => v.clone(),
 				}
-			} else {
-				v.clone()
-			}
+			} else { v.clone() }
 		};
 
 		let v1 = lift(a1);
 		let v2 = lift(a2);
+
+		if nonnull_hint {
+			return self.equal_nonnull(&ty, &v1, &v2);
+		}
 
 		match ty {
 			Integer => ctx.int__eq(&v1, &v2),
@@ -1502,12 +1465,9 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 			.iter()
 			.map(|c| match c {
 				RelEq { r1, r2 } => {
-                    let t1 = TupCtx { rel_name: "r1".to_string(), cols: vector![] };
-                    let t2 = TupCtx { rel_name: "r2".to_string(), cols: vector![] };
-
-                    let l2r = self.encode_subset(&t1, r1, &t2, r2);
-                    let r2l = self.encode_subset(&t2, r2, &t1, r1);
-                    Bool::and(z3_ctx, &[&l2r, &r2l])
+                    let l2r = self.encode_subset(r1, r2);
+					let r2l = self.encode_subset(r2, r1);
+					Bool::and(z3_ctx, &[&l2r, &r2l])
                 }
 				AttrsEq { a1, a2 } => {
 					let d1 = self.eval(a1);
@@ -1537,9 +1497,7 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 					self.equal_expr(a, c)
 				},
 				Subset { r1, r2 } => {
-                    let t1 = TupCtx { rel_name: "r1".to_string(), cols: vector![] };
-                    let t2 = TupCtx { rel_name: "r2".to_string(), cols: vector![] };
-                    self.encode_subset(&t1, r1, &t2, r2)
+      				self.encode_subset(r1, r2)
                 }
 			})
 			.collect();

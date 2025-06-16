@@ -1,4 +1,4 @@
-#![feature(slice_as_chunks)]
+// #![feature(slice_as_chunks)] -> This feature is now stable, so it can be removed.
 #![feature(if_let_guard)]
 #![feature(let_chains)]
 use std::any::Any;

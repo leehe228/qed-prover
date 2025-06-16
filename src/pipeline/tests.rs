@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use imbl::vector;
+// use imbl::vector;
 use super::*;
 use super::relation as rel;
 use super::constraint::Constraint;
