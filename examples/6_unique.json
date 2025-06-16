@@ -1,25 +1,38 @@
 {
-  "help":["Unique(t.k) removes need for DISTINCT", "optimized"],
-  "schemas":[ { "types":["INTEGER"],"nullable":[false],"name":"t","fields":["k"] } ],
-  "queries":[
-    { "project":{
-        "source":{ "scan":0 },
-        "target":[ { "type":"INTEGER","operand":[],
-                     "operator":"COUNT" } ]
+  "help": ["Unique(t.k) removes need for DISTINCT", "optimized"],
+  "schemas": [
+    {
+      "types":      ["INTEGER"],
+      "nullable":   [false],
+      "name":       "t",
+      "fields":     ["k"],
+      "guaranteed": [],
+      "key":        []
+    }
+  ],
+  "queries": [
+    {
+      "project": {
+        "source": { "scan": 0 },
+        "target": [
+          { "type": "INTEGER", "operand": [], "operator": "COUNT" }
+        ]
       }
     },
-    { "project":{
-        "source":{
-          "project":{
-            "source":{ "scan":0 },
-            "target":[ { "column":0,"type":"INTEGER" } ],
-            "distinct":true
+    {
+      "project": {
+        "source": {
+          "project": {
+            "source":  { "scan": 0 },
+            "target":  [ { "column": 0, "type": "INTEGER" } ],
+            "distinct": true
           }
         },
-        "target":[ { "type":"INTEGER","operand":[],
-                     "operator":"COUNT" } ]
+        "target": [
+          { "type": "INTEGER", "operand": [], "operator": "COUNT" }
+        ]
       }
     }
   ],
-  "constraints":[]
+  "constraints": []
 }
