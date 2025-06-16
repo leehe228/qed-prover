@@ -905,7 +905,7 @@ impl<'c> Z3Env<'c> {
             let ty  = e.ty();
             let vt  = self.eval_attr(&tup_t, e);
             let vu  = self.eval_attr(&tup_u, e);
-            self.ctx.bool_is_true(&self.equal(ty, &vt, &vu))
+            self.ctx.bool_is_true(&self.equal_with_hint(ty, &vt, &vu, true)) // apply hint
         }).collect();
 
         let eq_ys : Vec<Bool<'c>> = y.iter().map(|e| {
@@ -1025,30 +1025,27 @@ impl<'c> Z3Env<'c> {
 	}
 
 	fn equal_inner(&self, ty: DataType, a1: &Dynamic<'c>, a2: &Dynamic<'c>, nonnull_hint: bool) -> Dynamic<'c> {
-		if nonnull_hint {
-			return self.equal_nonnull(&ty, a1, a2);
-		}
-
 		use shared::DataType::*;
 		let ctx = &self.ctx;
 		let strict_sort = ctx.strict_sort(&ty);
-
 		let lift = |v: &Dynamic<'c>| -> Dynamic<'c> {
 			if v.get_sort() == strict_sort {
 				match ty {
 					Integer => ctx.int_some(v.as_int().unwrap()),
 					Real => ctx.real_some(v.as_real().unwrap()),
-					Boolean => ctx.bool_some(v.as_bool().unwrap()),
 					String => ctx.string_some(v.as_string().unwrap()),
+					Boolean => ctx.bool_some(v.as_bool().unwrap()),
 					Custom(_) => v.clone(),
 				}
-			} else {
-				v.clone()
-			}
+			} else { v.clone() }
 		};
 
 		let v1 = lift(a1);
 		let v2 = lift(a2);
+
+		if nonnull_hint {
+			return self.equal_nonnull(&ty, &v1, &v2);
+		}
 
 		match ty {
 			Integer => ctx.int__eq(&v1, &v2),
@@ -1502,9 +1499,14 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 			.iter()
 			.map(|c| match c {
 				RelEq { r1, r2 } => {
-                    let t1 = TupCtx { rel_name: "r1".to_string(), cols: vector![] };
-                    let t2 = TupCtx { rel_name: "r2".to_string(), cols: vector![] };
-
+                    let t1 = TupCtx {
+						rel_name: Z3Env::u_name_of_relation(&r1.name()),
+						cols: vector![],
+					};
+					let t2 = TupCtx {
+						rel_name: Z3Env::u_name_of_relation(&r2.name()),
+						cols: vector![],
+					};
                     let l2r = self.encode_subset(&t1, r1, &t2, r2);
                     let r2l = self.encode_subset(&t2, r2, &t1, r1);
                     Bool::and(z3_ctx, &[&l2r, &r2l])
@@ -1537,8 +1539,14 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 					self.equal_expr(a, c)
 				},
 				Subset { r1, r2 } => {
-                    let t1 = TupCtx { rel_name: "r1".to_string(), cols: vector![] };
-                    let t2 = TupCtx { rel_name: "r2".to_string(), cols: vector![] };
+                    let t1 = TupCtx {
+						rel_name: Z3Env::u_name_of_relation(&r1.name()),
+						cols: vector![],
+					};
+					let t2 = TupCtx {
+						rel_name: Z3Env::u_name_of_relation(&r2.name()),
+						cols: vector![],
+					};
                     self.encode_subset(&t1, r1, &t2, r2)
                 }
 			})
