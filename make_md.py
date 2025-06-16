@@ -5,6 +5,12 @@ from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
 
+lang_dict = {
+    ".py": "python",
+    ".rs": "rust",
+    ".json": "json",
+}
+
 def list_code_files_markdown(base_dir: str, extensions: tuple[str, ...], max_depth: int) -> str:
     base_path = Path(os.path.expanduser(base_dir)).resolve()
     if not base_path.is_dir():
@@ -30,8 +36,8 @@ def list_code_files_markdown(base_dir: str, extensions: tuple[str, ...], max_dep
         
         # print
         print(f"- {relative_path}")
-        
-        lang = "python" if file_path.suffix == ".py" else "rust"
+
+        lang = lang_dict.get(file_path.suffix, "text")
         output_lines.append(f'"""{relative_path}"""')
         output_lines.append(f"```{lang}")
         output_lines.append(code.rstrip())  # remove trailing newlines
