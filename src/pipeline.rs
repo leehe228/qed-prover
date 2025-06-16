@@ -76,7 +76,7 @@ pub fn unify(Input { schemas, queries: (rel1, rel2), help , constraints }: Input
 	} */
 	let mut schemas = schemas;
 	let mut changed = true;
-	let schema_len = schemas.len();
+	// let schema_len = schemas.len();
 
 	// Helper: Relation → Option<usize>
 	let rel_index = |r: &rel::Relation| -> Option<usize> {

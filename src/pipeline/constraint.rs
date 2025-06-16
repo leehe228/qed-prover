@@ -24,7 +24,7 @@ pub enum Constraint {
     #[serde(alias = "fd", alias = "FD")]
     FD { r: rel::Relation, x: Vec<rel::Expr>, y: Vec<rel::Expr> },
     #[serde(alias = "const", alias = "CONST")]
-    Const { r: rel::Relation, a: rel::Expr, c: rel::Expr },
+    Const { _r: rel::Relation, a: rel::Expr, c: rel::Expr },
     #[serde(alias = "subset", alias = "SUBSET")]
     Subset { r1: rel::Relation, r2: rel::Relation },
 }

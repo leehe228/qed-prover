@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Write};
 use std::ops::{Range, Add, Deref};
 use std::rc::Rc;
-use std::iter::{self, FromIterator, Repeat};
+// use std::iter::{self, FromIterator, Repeat};
+use std::iter;
 
 use anyhow::bail;
 use imbl::{vector, HashSet, Vector};
@@ -243,7 +244,7 @@ impl Logic {
 		}
 	}
 
-	fn simpl(self) -> Self {
+	/* fn simpl(self) -> Self {
 		use shared::Logic::*;
 		match self {
 			Eq(e1, e2) if e1 == e2 => Logic::tt(),
@@ -267,7 +268,7 @@ impl Logic {
 			Neg(l) => Neg(l.simpl().into()),
 			l => l,
 		}
-	}
+	} */
 
 	pub(crate) fn exprs(&self) -> Vector<&Expr> {
 		use shared::Logic::*;
@@ -514,9 +515,9 @@ pub struct Z3Env<'c> {
 
 impl<'c> Z3Env<'c> {
 	#[inline]
-	fn bool_true(&self) -> Bool<'c> {
+	/* fn bool_true(&self) -> Bool<'c> {
 		Bool::from_bool(self.ctx.z3_ctx(), true)
-	}
+	} */
 
 	pub fn fresh_tuple_vars_of(&self, schema: &[DataType]) -> Vector<Dynamic<'c>> {
 		schema.iter().map(|ty| self.ctx.var(ty, "t")).collect()
@@ -739,7 +740,7 @@ impl<'c> Z3Env<'c> {
                 let dargs: Vec<_> = args.iter().map(|a| self.eval_attr(tup, a)).collect();
                 self.ctx.app(&Self::uf_name_of_expr(op), &dargs.iter().collect::<Vec<_>>(), ty, true)
             }
-            Op { op, args, ty, rel: Some(q) } => {
+            Op { op, args, ty, rel: Some(_q) } => {
                 let dargs: Vec<_> = args.iter().map(|a| self.eval(a)).collect();
                 self.ctx.app(&Self::uf_name_of_expr(op), &dargs.iter().collect::<Vec<_>>(), ty, true)
             }
@@ -1535,7 +1536,7 @@ impl<'c> Eval<&Vec<constraint::Constraint>, Bool<'c>> for &Z3Env<'c> {
 				FD { r, x, y } => {
 					self.encode_fd(r, x, y)
 				},
-				Const { a, r, c } => {
+				Const { a, _r, c } => {
 					self.equal_expr(a, c)
 				},
 				Subset { r1, r2 } => {

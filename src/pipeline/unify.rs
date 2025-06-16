@@ -31,7 +31,7 @@ impl<'c> UnifyEnv<'c> {
 }
 
 impl UnifyEnv<'_> {
-	fn envs(&self) -> (Z3Env, Z3Env) {
+	fn envs(&'_ self) -> (Z3Env<'_>, Z3Env<'_>) {
 		let UnifyEnv(ctx, subst1, subst2, _) = self;
 		let z3_env = Z3Env::empty(ctx.clone(), Rc::new(Vec::new()));
 		let env1 = z3_env.extend_vals(subst1);
@@ -107,7 +107,7 @@ impl<'c> Unify<Vec<Expr>> for UnifyEnv<'c> {
 }
 
 impl Z3Env<'_> {
-	pub fn extract_equiv(&self, phi: &Bool<'_>) -> Bool {
+	pub fn extract_equiv(&'_ self, phi: &Bool<'_>) -> Bool<'_> {
 		use itertools::Itertools;
 		let Z3Env { ctx, h_ops, aggs, rel_h_ops, .. } = self;
 		let base_phi = phi.clone();
